@@ -1,0 +1,5 @@
+(executable
+ (public_name monkeyc_parser)
+ (name main)
+ (package monkeyc_parser)
+ (libraries monkeyc_parser))

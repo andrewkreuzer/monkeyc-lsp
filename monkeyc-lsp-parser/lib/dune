@@ -1,0 +1,3 @@
+(library
+  (libraries core)
+  (name monkeyc_parser))
