@@ -1,44 +1,22 @@
 open Core
 let r file = In_channel.read_all file
 
-(* class ['string] input_stream file = *)
-(*   object (self) *)
-(*     val mutable input = String.to_list (r file) *)
-(*     val pos = ref 0 *)
-(*     val line = ref 1 *)
-(*     val col = ref 0 *)
-(*     method next = *)
-(*       match input with *)
-(*       | [] -> raise End_of_file *)
-(*       | h :: t -> *)
-(*         (1* I don't knwo why '=' doesn't work here *1) *)
-(*         if phys_equal h '\n' then line := !line + 1 *)
-(*         else col := !col + 1; *)
-(*         input <- t; h *)
-(*     method peek = *)
-(*       List.hd input *)
-(*     method eof = *)
-(*       self#peek |> Option.is_none *)
-(*     method size = *)
-(*       List.length input *)
-(*   end;; *)
-
-type inputStream =
-  {
-    file: string;
-    input : char list;
-    pos : int;
-    line : int;
-    col : int;
-    current: string;
+type t =
+  { file: string
+    ; input : char list
+    ; pos : int
+    ; line : int
+    ; col : int
+    ; mutable current: string
   }
 
-module InputStream : sig
-  val make : string -> inputStream
-  val next : inputStream -> inputStream * char
-  val peek : inputStream -> char option
-  val eof : inputStream -> bool
-  val size : inputStream -> int
+module Input_stream : sig
+  val make : string -> t
+  val next : t -> t * char
+  val peek : t -> char option
+  val double_peek : t -> char option
+  val eof : t -> bool
+  val size : t -> int
 end = struct
   let make file =
     {
@@ -60,6 +38,11 @@ end = struct
 
   let peek t =
     List.hd t.input
+
+  let double_peek t =
+    match List.nth_exn t.input 1 with
+    | c -> Some c
+    | exception _ -> None
 
   let eof t =
     peek t |> Option.is_none
