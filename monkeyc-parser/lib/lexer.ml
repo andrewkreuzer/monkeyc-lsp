@@ -12,10 +12,10 @@ type punctuation =
   | QUESTIONMARK
 
 type number =
-  | NUMBER of (int)
-  | LONG of (int64)
-  | FLOAT of (float)
-  | DOUBLE of (int64)
+  | NUMBER
+  | LONG
+  | FLOAT
+  | DOUBLE
 
 type operator =
   | EQ
@@ -35,6 +35,9 @@ type operator =
   | ARROW
   | NEQ
   | PLUSEQ
+  | MINUSEQ
+  | PLUSPLUS
+  | MINUSMINUS
 
 type keyword =
   | USING
@@ -76,12 +79,12 @@ type keyword =
   | CATCH
   | FINALLY
 
-type tokens =
-  | IDENT of (string)
-  | STRING of (string)
+type token_type =
+  | IDENT
+  | STRING
   | BOOLEAN of (bool)
   | CHAR of (char)
-  | NUMBER of (int)
+  | NUMBER
   | PUNCTUATION of (punctuation)
   | OPERATOR of (operator)
   | KEYWORD of (keyword)
@@ -125,6 +128,9 @@ let string_of_operator = function
   | ARROW -> "ARROW"
   | NEQ -> "NEQ"
   | PLUSEQ -> "PLUSEQ"
+  | MINUSEQ -> "MINUSEQ"
+  | PLUSPLUS -> "PLUSPLUS"
+  | MINUSMINUS -> "MINUSMINUS"
 
 let string_of_keyword = function
   | USING -> "USING"
@@ -180,10 +186,10 @@ let print_token = function
   | PUNCTUATION QUESTIONMARK -> "QUESTIONMARK"
   | BOOLEAN b -> "BOOLEAN " ^ (string_of_bool b)
   | OPERATOR o -> "OPERATOR " ^ (string_of_operator o)
-  | IDENT s -> "IDENT " ^ s
-  | STRING s -> "STRING " ^ s
+  | IDENT -> "IDENT "
+  | STRING -> "STRING "
   | EOF -> "EOF"
-  | NUMBER i -> "NUMBER " ^ string_of_int i
+  | NUMBER -> "NUMBER "
   | KEYWORD k -> "KEYWORD " ^ (string_of_keyword k)
   | COMMENT -> "COMMENT"
   | _ -> "ERROR"
@@ -385,6 +391,9 @@ let match_op = function
   | "||" -> OR
   | "!" -> NOT
   | "+=" -> PLUSEQ
+  | "-=" -> MINUSEQ
+  | "++" -> PLUSPLUS
+  | "--" -> MINUSMINUS
   | c -> raise (Failure ("Not an operator: " ^ c))
 
 let rec skip_to st c =
@@ -416,40 +425,65 @@ let skip_comment stream =
   in
   aux stream
 
+type token =
+  { token_type : token_type
+    ; value : string
+    ; line : int
+    ; col : int
+  }
+
 let tokens stream =
   let eof stream = Io.Input_stream.eof stream in
-  let rec aux st acc =
+  let rec aux st (acc: token list) =
     if eof st then acc
     else let peek = Io.Input_stream.peek st in
       match peek with
       | None -> raise (Failure "Unexpected end of file")
       | Some c when (is_whitespace c) -> aux (take st) acc
-      | Some c when (is_comment st c) -> aux (skip_comment st) (COMMENT :: acc)
+      | Some c when (is_comment st c) -> aux (skip_comment st) (
+        { token_type = COMMENT; value = ""; line = st.line; col = st.col}
+        :: acc)
 
       | Some '"' ->
         ( let s, string = read_string (take st) in
-          aux s ((STRING string) :: acc))
+          aux s ((
+            { token_type = STRING; value = string; line = s.line; col = s.col}
+          ) :: acc))
 
       | Some c when (is_number c) -> (
         let s, number = read_number st in
-        aux s ((NUMBER (int_of_string number)) :: acc))
+        aux s ((
+          { token_type = NUMBER; value = number; line = s.line; col = s.col}
+        ) :: acc))
 
       | Some c when (is_ident_start c) ->
         ( let s, string = read_ident st in
           if (is_keyword string) then
-            aux s (KEYWORD (match_keyword string) :: acc)
+            aux s (
+              { token_type = KEYWORD (match_keyword string); value = string; line = s.line; col = s.col}
+              :: acc)
           else if (is_boolean string) then
-            aux s ((BOOLEAN (match_bool string)) :: acc)
+            aux s ((
+              { token_type = BOOLEAN (match_bool string); value = string; line = s.line; col = s.col}
+            ) :: acc)
           else
-            aux s ((IDENT string) :: acc))
+            aux s ((
+              { token_type = IDENT; value = string; line = s.line; col = s.col}
+            ) :: acc))
 
       | Some c when (is_op c) -> (
         let s, op = read_op st in
-        aux s (OPERATOR (match_op op) :: acc))
+        aux s (
+          { token_type = OPERATOR (match_op op); value = op; line = s.line; col = s.col}
+          :: acc))
 
       | Some c when (is_punc c) -> (
-        aux (take st) (PUNCTUATION (match_punc c) :: acc))
+        aux (take st) (
+          { token_type = PUNCTUATION (match_punc c); value = (String.make 1 c); line = st.line; col = st.col}
+          :: acc))
 
-      | Some c -> aux (take st) (IDENT (String.make 1 c) :: acc)
+      | Some c -> aux (take st) (
+        { token_type = IDENT; value = (String.make 1 c); line = st.line; col = st.col}
+        :: acc)
   in
   List.rev (aux stream [])
