@@ -172,36 +172,14 @@ let string_of_keyword = function
   | CATCH -> "CATCH"
   | FINALLY -> "FINALLY"
 
-let print_token = function
-  | PUNCTUATION LPAREN -> "LPAREN"
-  | PUNCTUATION RPAREN -> "RPAREN"
-  | PUNCTUATION LBRACE -> "LBRACE"
-  | PUNCTUATION RBRACE -> "RBRACE"
-  | PUNCTUATION LBRACKET -> "LBRACKET"
-  | PUNCTUATION RBRACKET -> "RBRACKET"
-  | PUNCTUATION SEMICOLON -> "SEMICOLON"
-  | PUNCTUATION DOT -> "DOT"
-  | PUNCTUATION COLON -> "COLON"
-  | PUNCTUATION COMMA -> "COMMA"
-  | PUNCTUATION QUESTIONMARK -> "QUESTIONMARK"
-  | BOOLEAN b -> "BOOLEAN " ^ (string_of_bool b)
-  | OPERATOR o -> "OPERATOR " ^ (string_of_operator o)
-  | IDENT -> "IDENT "
-  | STRING -> "STRING "
-  | EOF -> "EOF"
-  | NUMBER -> "NUMBER "
-  | KEYWORD k -> "KEYWORD " ^ (string_of_keyword k)
-  | COMMENT -> "COMMENT"
-  | _ -> "ERROR"
-
 let make s = Io.Input_stream.make s
 
 let take stream =
   match Io.Input_stream.next stream with
-  | s, '\n' -> { s with current = "" }
-  | s, ' ' -> { s with current = "" }
-  | s, '\t' -> { s with current = "" }
-  | s, c -> { s with current = s.current ^ (String.make 1 c) }
+  | s, '\n' -> s.current <- ""; s
+  | s, ' ' -> s.current <- ""; s
+  | s, '\t' -> s.current <- ""; s
+  | s, c -> s.current <- (String.make 1 c); s
 
 let read_string stream =
   let rec aux s string =
@@ -412,6 +390,17 @@ let is_comment st =
   | c when ml c || sl c-> true
   | _ -> false
 
+let is_comment_next st =
+  let double_peek = match Io.Input_stream.double_peek st with
+    | Some c -> String.make 1 c
+    | None -> ""
+  in
+  let sl c = c ^ double_peek = "//" in
+  let ml c = c ^ double_peek = "/*" in
+  match st.current with
+  | c when ml c || sl c -> true
+  | _ -> false
+
 let skip_comment stream =
   let rec aux st =
     let peek s = match Io.Input_stream.peek s with
@@ -431,6 +420,45 @@ type token =
     ; line : int
     ; col : int
   }
+
+let next_token stream =
+  let eof st = Io.Input_stream.eof st in
+  let rec aux st =
+    if eof st then { token_type = EOF; value = ""; line = st.line; col = st.col }, st
+    else let peek = Io.Input_stream.peek st in
+      match peek with
+      | None -> raise (Failure "Unexpected end of file")
+      | Some c when (is_whitespace c) -> aux (take st)
+      | Some c when (is_comment stream c) -> aux (skip_comment st)
+
+      | Some '"' ->
+        let s, string = read_string (take st) in
+        { token_type = STRING; value = string; line = s.line; col = s.col}, s
+
+      | Some c when (is_number c) ->
+        let s, number = read_number st in
+        { token_type = NUMBER; value = number; line = s.line; col = s.col}, s
+
+      | Some c when (is_ident_start c) ->
+        let s, string = read_ident st in
+        if (is_keyword string) then
+          { token_type = KEYWORD (match_keyword string); value = string; line = s.line; col = s.col}, s
+        else if (is_boolean string) then
+          { token_type = BOOLEAN (match_bool string); value = string; line = s.line; col = s.col}, s
+        else
+          { token_type = IDENT; value = string; line = s.line; col = s.col}, s
+
+      | Some c when (is_op c) ->
+        let s, op = read_op st in
+        { token_type = OPERATOR (match_op op); value = op; line = s.line; col = s.col}, s
+
+      | Some c when (is_punc c) ->
+        { token_type = PUNCTUATION (match_punc c); value = (String.make 1 c); line = st.line; col = st.col}, (take st)
+
+      | Some c -> { token_type = IDENT; value = (String.make 1 c); line = st.line; col = st.col}, (take st)
+  in
+  aux stream
+
 
 let tokens stream =
   let eof stream = Io.Input_stream.eof stream in
@@ -487,3 +515,40 @@ let tokens stream =
         :: acc)
   in
   List.rev (aux stream [])
+
+let print_token_type = function
+  | PUNCTUATION LPAREN -> "LPAREN"
+  | PUNCTUATION RPAREN -> "RPAREN"
+  | PUNCTUATION LBRACE -> "LBRACE"
+  | PUNCTUATION RBRACE -> "RBRACE"
+  | PUNCTUATION LBRACKET -> "LBRACKET"
+  | PUNCTUATION RBRACKET -> "RBRACKET"
+  | PUNCTUATION SEMICOLON -> "SEMICOLON"
+  | PUNCTUATION DOT -> "DOT"
+  | PUNCTUATION COLON -> "COLON"
+  | PUNCTUATION COMMA -> "COMMA"
+  | PUNCTUATION QUESTIONMARK -> "QUESTIONMARK"
+  | BOOLEAN b -> "BOOLEAN " ^ (string_of_bool b)
+  | OPERATOR o -> "OPERATOR " ^ (string_of_operator o)
+  | IDENT -> "IDENT "
+  | STRING -> "STRING "
+  | EOF -> "EOF"
+  | NUMBER -> "NUMBER "
+  | KEYWORD k -> "KEYWORD " ^ (string_of_keyword k)
+  | COMMENT -> "COMMENT"
+  | _ -> "ERROR"
+
+let token_string t =
+  print_token_type
+    t.token_type
+  ^ " " ^ t.value
+  ^ " " ^ (string_of_int t.line)
+  ^ " " ^ (string_of_int t.col)
+
+let print_token t = 
+    print_endline (token_string t)
+
+let print_token_list l = 
+  List.iter (fun ( t : token) ->
+    print_token t
+  ) l
