@@ -94,7 +94,7 @@ let read_parameters stream =
       aux s (parameter :: ret)
     | Lexer.PUNCTUATION COMMA -> aux s ret (* read_parameter finished *)
     | Lexer.PUNCTUATION RPAREN -> List.rev ret, s
-    | _ -> raise (ParserError ("Unexpected token in function parameter expression " ^ Lexer.token_string t))
+    | _ -> raise (ParserError ("Unexpected token in parameter list " ^ Lexer.token_string t))
   in
   aux stream []
 
@@ -128,27 +128,31 @@ let read_if_statement stream =
   aux stream { condition = ""; body = [] }
 
 let rec read_expression stream =
-  let rec aux st ret =
-    let t, s = Lexer.next_token st in
+  let rec aux str ret =
+    let t, st = Lexer.next_token str in
     match ret with
-    | [] -> aux s [(t.token_type, t)]
+    | [] -> aux st [(t.token_type, t)]
     | (Lexer.KEYWORD NEW, _) :: _ ->
-      let exp, s = read_expression s in
-      NEW { expression = exp }, s
+      let exp, _ = read_expression str in
+      NEW { expression = exp }, st
     | (Lexer.IDENT, object_name) ::
       (Lexer.OPERATOR EQ, operator) ::
         _ ->
-      let exp, s = read_expression s in
-      ASSIGNMENT { left = VARIABLE (IDENT object_name.value); operator = operator.value; right = exp }, s
+      let exp, _ = read_expression str in
+      ASSIGNMENT { left = VARIABLE (IDENT object_name.value); operator = operator.value; right = exp }, st
+    | (Lexer.IDENT, function_name)
+      :: (Lexer.PUNCTUATION LPAREN, _)
+      :: _ ->
+      let parameters, _ = read_parameters str in
+      FUNCTION_CALL { object_name = ""; function_name = function_name.value; parameters = parameters }, st
     | (Lexer.IDENT, object_name)
       :: (Lexer.PUNCTUATION DOT, _)
       :: (Lexer.IDENT, function_name)
       :: (Lexer.PUNCTUATION LPAREN, _)
-      :: (Lexer.PUNCTUATION SEMICOLON, _)
       :: _ ->
-      let parameters, _ = read_parameters st in
+      let parameters, _ = read_parameters str in
       FUNCTION_CALL { object_name = object_name.value; function_name = function_name.value; parameters = parameters }, st
-    | _ -> aux s (List.append ret [(t.token_type, t)])
+    | _ -> aux st (List.append ret [(t.token_type, t)])
   in
   aux stream []
 
@@ -162,7 +166,8 @@ let rec aux st ret =
     | Lexer.KEYWORD IF ->
       let if_statement, s = read_if_statement s in
       aux s (if_statement :: ret)
-    | Lexer.PUNCTUATION RBRACE -> List.rev ret, s
+    | Lexer.PUNCTUATION SEMICOLON -> aux s ret
+    | Lexer.PUNCTUATION RBRACE -> List.rev ret, st
     | _ -> raise (ParserError ("Unexpected token in block " ^ Lexer.token_string t))
 in
   aux stream []
@@ -224,9 +229,9 @@ let read_class_block stream class_def =
   let t, st = Lexer.next_token str in
     match t.token_type with
 
-      | Lexer.KEYWORD VAR ->
-        let var, s = read_var st PUBLIC in
-        aux s { ret with private_vars = var :: ret.private_vars }
+    | Lexer.KEYWORD VAR ->
+      let var, s = read_var st PUBLIC in
+      aux s { ret with private_vars = var :: ret.private_vars }
 
     | Lexer.KEYWORD PRIVATE -> 
       (
@@ -255,7 +260,7 @@ let read_class_block stream class_def =
       )
 
     | Lexer.PUNCTUATION LBRACE -> { ret with extends_class = List.rev ret.extends_class; private_vars = List.rev ret.private_vars }, st
-    | Lexer.PUNCTUATION RBRACE -> ret, st
+    | Lexer.PUNCTUATION RBRACE -> print_endline "we not seeing this??"; ret, st
     | _ -> raise (ParserError ("Unexpected token in class block " ^ Lexer.token_string t))
 in
   aux stream class_def
@@ -273,13 +278,41 @@ let var_list_string (vars: var list) =
   in
   aux "" vars
 
+let exp_string (exp: expression) =
+  match exp with
+  | USING -> "Using"
+  | _ -> "Unknown"
+
+let exp_list_string (exps: expression list) =
+  let rec aux ret = function
+    | [] -> ret
+    | h :: t ->
+      aux (ret ^ " " ^ (exp_string h)) t
+  in
+  aux "" exps
+
+let func_body_string (body: expression list) =
+  let rec aux ret = function
+    | [] -> ret
+    | h :: t -> aux (ret ^ " " ^ (exp_string h)) t
+  in
+  aux "" body
+
+let func_list_string (funcs: function_definition list) =
+  let rec aux ret = function
+    | [] -> ret
+    | h :: t -> aux (ret ^ " " ^ h.name ^ "\n" ^ (func_body_string h.body)) t
+  in
+  aux "" funcs
+
 let print_class_definitiion class_def =
   print_endline (
     "CLASS " ^ class_def.class_name
     ^ " EXTENDS " ^ (Lexer.token_list_string class_def.extends_class)
     ^ "\nBODY VARS" ^ (var_list_string class_def.private_vars)
+    ^ "\nBODY PUB VARS" ^ (var_list_string class_def.public_vars)
+    ^ "\nBODY PUB FUNC" ^ (func_list_string class_def.public_functions)
   );
-
 
 type p =
   { name: statement
