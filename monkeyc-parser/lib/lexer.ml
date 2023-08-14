@@ -207,6 +207,7 @@ let is_ident_start = function
   | 'a'..'z' -> true
   | 'A'..'Z' -> true
   | '_' -> true
+  | '$' -> true
   | _ -> false
 
 let read_ident stream =
@@ -390,17 +391,6 @@ let is_comment st =
   | c when ml c || sl c-> true
   | _ -> false
 
-let is_comment_next st =
-  let double_peek = match Io.Input_stream.double_peek st with
-    | Some c -> String.make 1 c
-    | None -> ""
-  in
-  let sl c = c ^ double_peek = "//" in
-  let ml c = c ^ double_peek = "/*" in
-  match st.current with
-  | c when ml c || sl c -> true
-  | _ -> false
-
 let skip_comment stream =
   let rec aux st =
     let peek s = match Io.Input_stream.peek s with
@@ -429,7 +419,7 @@ let next_token stream =
       match peek with
       | None -> raise (Failure "Unexpected end of file")
       | Some c when (is_whitespace c) -> aux (take st)
-      | Some c when (is_comment stream c) -> aux (skip_comment st)
+      | Some c when (is_comment st c) -> aux (skip_comment st)
 
       | Some '"' ->
         let s, string = read_string (take st) in
@@ -544,6 +534,10 @@ let token_string t =
   ^ " " ^ t.value
   ^ " " ^ (string_of_int t.line)
   ^ " " ^ (string_of_int t.col)
+
+let rec token_list_string = function
+  | [] -> ""
+  | t::ts -> token_string t ^ " " ^ token_list_string ts
 
 let print_token t = 
     print_endline (token_string t)
