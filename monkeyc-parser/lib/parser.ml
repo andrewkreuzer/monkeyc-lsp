@@ -106,6 +106,7 @@ and class_definition =
     ; methods: function_definition list
   }
 
+(* TODO: multi type not working *)
 let rec read_type stream read_until =
   let rec aux st ret =
     let t, s = next_token st in
@@ -453,15 +454,21 @@ let print = function
 
 open Yojson.Basic
 
-let string_of_opt_return_type = function
-  | Some t -> String.concat " " t.type_name
-  | None -> "void"
+let rec type_to_json (t: type_definition option) =
+  match t with
+  | Some t -> 
+    `Assoc [
+      ("type", `String (String.concat " " t.type_name));
+      ("nullable", `Bool t.type_nullable);
+      ("type_array", `List (List.map (fun t -> type_to_json (Some t)) t.type_array));
+    ]
+  | None -> `Assoc []
 
 let var_to_json (v: var) =
   (`Assoc [
     ("var", `Assoc [
       ("name", `String v.var_name);
-      ("type", `String (string_of_opt_return_type v.var_type));
+      ("type", type_to_json v.var_type);
     ])
 ])
 
@@ -469,7 +476,7 @@ let param_to_json (p: parameter) =
   (`Assoc [
     ("parameter", `Assoc [
       ("name", `String p.param_name);
-      ("type", `String (string_of_opt_return_type p.param_type));
+      ("type", type_to_json p.param_type);
     ])
 ])
 
@@ -477,7 +484,7 @@ let func_to_json (f: function_definition) =
   (`Assoc [
     ("function", `Assoc [
       ("name", `String f.func_name);
-      ("return_type", `String (string_of_opt_return_type f.return_type));
+      ("return_type", type_to_json f.return_type);
       ("parameters", `List (List.map (fun p -> param_to_json p ) f.parameters));
       ("body", `List (List.map (fun s -> `String (statement_string s)) f.func_body));
     ])
