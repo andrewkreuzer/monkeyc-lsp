@@ -210,11 +210,18 @@ let is_ident_start = function
   | '$' -> true
   | _ -> false
 
+let is_ident = function
+  | 'a'..'z' -> true
+  | 'A'..'Z' -> true
+  | '_' -> true
+  | '0'..'9' -> true
+  | _ -> false
+
 let read_ident stream =
   let rec aux s ident =
     match Io.Input_stream.peek s with
     | None -> s, ident
-    | Some c when (is_ident_start c) -> aux (take s) (ident ^ (String.make 1 c))
+    | Some c when (is_ident c) -> aux (take s) (ident ^ (String.make 1 c))
     | _ -> s, ident
   in
   aux stream ""
@@ -505,44 +512,3 @@ let tokens stream =
         :: acc)
   in
   List.rev (aux stream [])
-
-let print_token_type = function
-  | PUNCTUATION LPAREN -> "LPAREN"
-  | PUNCTUATION RPAREN -> "RPAREN"
-  | PUNCTUATION LBRACE -> "LBRACE"
-  | PUNCTUATION RBRACE -> "RBRACE"
-  | PUNCTUATION LBRACKET -> "LBRACKET"
-  | PUNCTUATION RBRACKET -> "RBRACKET"
-  | PUNCTUATION SEMICOLON -> "SEMICOLON"
-  | PUNCTUATION DOT -> "DOT"
-  | PUNCTUATION COLON -> "COLON"
-  | PUNCTUATION COMMA -> "COMMA"
-  | PUNCTUATION QUESTIONMARK -> "QUESTIONMARK"
-  | BOOLEAN b -> "BOOLEAN " ^ (string_of_bool b)
-  | OPERATOR o -> "OPERATOR " ^ (string_of_operator o)
-  | IDENT -> "IDENT "
-  | STRING -> "STRING "
-  | EOF -> "EOF"
-  | NUMBER -> "NUMBER "
-  | KEYWORD k -> "KEYWORD " ^ (string_of_keyword k)
-  | COMMENT -> "COMMENT"
-  | _ -> "ERROR"
-
-let token_string t =
-  print_token_type
-    t.token_type
-  ^ " " ^ t.value
-  ^ " " ^ (string_of_int t.line)
-  ^ " " ^ (string_of_int t.col)
-
-let rec token_list_string = function
-  | [] -> ""
-  | t::ts -> token_string t ^ " " ^ token_list_string ts
-
-let print_token t = 
-    print_endline (token_string t)
-
-let print_token_list l = 
-  List.iter (fun ( t : token) ->
-    print_token t
-  ) l
