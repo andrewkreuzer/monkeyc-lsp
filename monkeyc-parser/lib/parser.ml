@@ -20,7 +20,7 @@ type statement =
   | IF of if_statement
 
 and definition =
-  | CLASS
+  | CLASS of class_definition
   | FUNCTION of function_definition
 
 and using = { namespace: namespace }
@@ -80,9 +80,8 @@ and function_call =
   }
 
 and parameter =
-  { par_name: string
-    ; par_has_type: bool
-    ; par_type: type_definition option
+  { param_name: string
+    ; param_type: type_definition option
   }
 
 and var =
@@ -100,11 +99,11 @@ and enum =
 and class_definition =
   { class_name: string
     ; extends: bool
-    ; extends_class: token list
+    ; extends_class: namespace
     ; private_vars: var list
-    ; public_vars: var list
+    ; properties: var list
     ; private_functions: function_definition list
-    ; public_functions: function_definition list
+    ; methods: function_definition list
   }
 
 let rec read_type stream read_until =
@@ -128,19 +127,19 @@ let rec read_type stream read_until =
   aux stream { type_name = []; type_nullable = false; contained_type = None; type_is_array = false; type_array = [] }
 
 let read_parameter stream =
-  let is_first (i: parameter) = i.par_name = "" in
+  let is_first (i: parameter) = i.param_name = "" in
   let rec aux st (ret: parameter) =
     let t, s = next_token st in
     match t.token_type with
-    | IDENT when (is_first ret) -> aux s { ret with par_name = t.value }
+    | IDENT when (is_first ret) -> aux s { ret with param_name = t.value }
     | KEYWORD AS ->
       let type_definition, s = read_type s (PUNCTUATION RPAREN) in
-      aux s { ret with par_type = Some type_definition }
+      aux s { ret with param_type = Some type_definition }
     | PUNCTUATION COMMA -> ret, st (* send back token stream before comma *)
     | PUNCTUATION RPAREN -> ret, st (* send back token stream before paren *)
     | _ -> raise (ParserError ("Unexpected token in parameter " ^ Pprint.token_string t))
   in
-  aux stream { par_name = ""; par_has_type = true; par_type = None }
+  aux stream { param_name = ""; param_type = None }
 
 let read_parameters stream =
   let rec aux st ret =
@@ -303,8 +302,8 @@ let read_class_definition stream class_def =
     match t.token_type with
     | IDENT when (is_first ret) -> aux s { ret with class_name = t.value }
     | KEYWORD EXTENDS -> aux s { ret with extends = true }
-    | PUNCTUATION DOT -> aux s { ret with extends_class = t :: ret.extends_class }
-    | IDENT when (ret.extends = true) -> aux s { ret with extends_class = t :: ret.extends_class }
+    | PUNCTUATION DOT -> aux s ret
+    | IDENT when (ret.extends = true) -> aux s { ret with extends_class = t.value :: ret.extends_class }
     | PUNCTUATION LBRACE -> { ret with extends_class = List.rev ret.extends_class }, s
     | _ -> raise (ParserError ("Unexpected token in class definition " ^ Pprint.token_string t))
   in
@@ -338,10 +337,10 @@ let read_class_block stream class_def =
         match t.token_type with
         | KEYWORD VAR ->
           let var, s = read_var st PUBLIC in
-          aux s { ret with public_vars = var :: ret.public_vars }
+          aux s { ret with properties = var :: ret.properties }
         | KEYWORD FUNCTION ->
           let f, s = read_function st PUBLIC in
-          aux s { ret with public_functions = f :: ret.public_functions }
+          aux s { ret with methods = f :: ret.methods }
         | _ -> raise (ParserError ("Unexpected token in private declaration " ^ Pprint.token_string t))
       )
 
@@ -352,7 +351,7 @@ let read_class_block stream class_def =
   aux stream class_def
 
 let read_class stream =
-  let class_def = { class_name = ""; extends = false; extends_class = []; public_vars = []; private_vars = []; public_functions = []; private_functions = []} in
+  let class_def = { class_name = ""; extends = false; extends_class = []; properties = []; private_vars = []; methods = []; private_functions = []} in
   let class_def, s = read_class_definition stream class_def in
   let class_def, s = read_class_block s class_def in
   class_def, s
@@ -447,20 +446,67 @@ let func_list_string (funcs: function_definition list) =
   in
   aux "" funcs
 
-let print_class_definitiion class_def =
-  print_endline (
-    "CLASS " ^ class_def.class_name
-    ^ " EXTENDS " ^ (Pprint.token_list_string class_def.extends_class)
-    ^ "\nBODY PRIV VARS" ^ (var_list_string class_def.private_vars)
-    ^ "\nBODY PUB VARS" ^ (var_list_string class_def.public_vars)
-    ^ "\nBODY PRIV FUNC" ^ (func_list_string class_def.private_functions)
-    ^ "\nBODY PUB FUNC" ^ (func_list_string class_def.public_functions)
-  )
-
 let print = function 
   | USING u -> print_endline ("USING " ^ String.concat " " u.namespace)
   | EXPRESSION ENUM e -> print_endline ("ENUM " ^ e.enum_name ^ " with " ^ String.concat " " e.enum_values)
   | _ -> print_endline "Undefined_recursive_module"
+
+open Yojson.Basic
+
+let string_of_opt_return_type = function
+  | Some t -> String.concat " " t.type_name
+  | None -> "void"
+
+let var_to_json (v: var) =
+  (`Assoc [
+    ("var", `Assoc [
+      ("name", `String v.var_name);
+      ("type", `String (string_of_opt_return_type v.var_type));
+    ])
+])
+
+let param_to_json (p: parameter) =
+  (`Assoc [
+    ("parameter", `Assoc [
+      ("name", `String p.param_name);
+      ("type", `String (string_of_opt_return_type p.param_type));
+    ])
+])
+
+let func_to_json (f: function_definition) =
+  (`Assoc [
+    ("function", `Assoc [
+      ("name", `String f.func_name);
+      ("return_type", `String (string_of_opt_return_type f.return_type));
+      ("parameters", `List (List.map (fun p -> param_to_json p ) f.parameters));
+      ("body", `List (List.map (fun s -> `String (statement_string s)) f.func_body));
+    ])
+])
+
+let class_to_json (c: class_definition) =
+  (`Assoc [
+    ("class", `Assoc [
+      ("name", `String c.class_name);
+      ("methods", `List (List.map (fun f ->  func_to_json f) c.methods));
+      ("properties", `List (List.map (fun v -> var_to_json v ) c.properties));
+      ("private vars", `List (List.map (fun v -> var_to_json v) c.private_vars));
+      ("private functions", `List (List.map (fun f -> func_to_json f) c.private_functions));
+    ])
+  ])
+
+let to_json = function
+  | USING u -> pretty_to_string
+    (`Assoc [
+      ("using", `List (List.map (fun s -> `String s) u.namespace))
+    ])
+  | EXPRESSION ENUM e -> pretty_to_string 
+    (`Assoc [
+      ("enum", `Assoc [("name", `String e.enum_name);
+      ("values", `List (List.map (fun s -> `String s) e.enum_values))])
+    ])
+  | DEFINITION CLASS c -> pretty_to_string (class_to_json c)
+  | DEFINITION FUNCTION f -> pretty_to_string (func_to_json f)
+  | _ -> to_string (`Assoc [("error", `String "Undefined_recursive_module")])
 
 let run_next file =
   let stream = make file in
@@ -470,13 +516,13 @@ let run_next file =
     | EOF -> print_endline "EOF"
     | KEYWORD USING -> 
       let use_exp, s = read_using_statement st in
-      print use_exp; aux s
+      print_endline (to_json use_exp); aux s
     | KEYWORD ENUM -> 
       let enum, s = read_enum_expression st in
-      print (EXPRESSION enum); aux s
+      print_endline (to_json (EXPRESSION enum)); aux s
     | KEYWORD CLASS -> 
       let class_def, s = read_class st in
-      print_class_definitiion class_def; aux s
+      print_endline (to_json (DEFINITION (CLASS class_def))); aux s
     | _ -> print_endline "Undefined_recursive_module"
   in
   aux stream
