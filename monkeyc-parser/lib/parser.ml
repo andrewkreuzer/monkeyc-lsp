@@ -30,6 +30,7 @@ and if_statement =
   { condition: expression
     ; if_body: statement list
     ; if_return_exp: expression option
+    ; if_return_type: type_definition option
     ; else_body: statement list option list
   }
 
@@ -42,6 +43,7 @@ and function_definition =
     ; access_modifier: access_modifier
     ; func_body: block
     ; func_return_exp: expression option
+    ; func_return_type: type_definition option
   }
 
 and expression =
@@ -167,10 +169,22 @@ let rec read_block stream =
       let var, s = read_var s PRIVATE in
       aux s ((EXPRESSION (VARIABLE var )):: ret)
     | PUNCTUATION SEMICOLON -> aux s ret
-    | KEYWORD RETURN ->
+    | KEYWORD RETURN -> (
       let return_exp, s = read_expression s (PUNCTUATION SEMICOLON) in
-      List.rev ret, Some return_exp, s
-    | PUNCTUATION RBRACE -> List.rev ret, None, st
+      let t, s = next_token s in
+      match t.token_type with
+      | KEYWORD AS ->
+        let return_type, s = read_type s (PUNCTUATION SEMICOLON) in
+        let t, s = next_token s in
+        begin
+          match t.token_type with
+          | PUNCTUATION SEMICOLON -> List.rev ret, Some return_exp, Some return_type, s
+          | _ -> raise (ParserError ("Unexpected token in return statement " ^ Pprint.token_string t))
+          end
+      | PUNCTUATION SEMICOLON -> List.rev ret, Some return_exp, None, s
+      | _ -> raise (ParserError ("Unexpected token in return statement " ^ Pprint.token_string t))
+    )
+    | PUNCTUATION RBRACE -> List.rev ret, None, None, st
     | _ -> raise (ParserError ("Unexpected token in block " ^ Pprint.token_string t))
   in
   aux stream []
@@ -183,12 +197,12 @@ and read_if_statement stream =
       let condition, s = read_expression s (PUNCTUATION RPAREN) in
       aux s { if_def with condition = condition }
     | PUNCTUATION LBRACE ->
-      let body, return_exp, s = read_block s in
-      aux s { if_def with if_body = body; if_return_exp = return_exp }
+      let body, return_exp, return_type, s = read_block s in
+      aux s { if_def with if_body = body; if_return_exp = return_exp; if_return_type = return_type }
     | PUNCTUATION RBRACE -> IF if_def, s
     | _ -> raise (ParserError ("Unexpected token in if statement " ^ Pprint.token_string t))
   in
-  aux stream { condition = IDENT ""; if_body = []; else_body = [None]; if_return_exp = None } (* filling condition with blank ident for now I guess *)
+  aux stream { condition = IDENT ""; if_body = []; else_body = [None]; if_return_exp = None; if_return_type = None } (* filling condition with blank ident for now I guess *)
 
 and read_expression stream read_until =
   let rec aux str ret =
@@ -228,6 +242,7 @@ and read_expression stream read_until =
       ARRAY array, s
     | (IDENT, _) :: ( tt, _) :: _ when (read_until = tt) -> IDENT t.value, st
     | (IDENT, _) :: ( PUNCTUATION RBRACKET, _) :: _ -> IDENT t.value, str
+    | (tt, _) :: _ when tt = read_until -> raise (ParserError ("Unexpected token in expression " ^ Pprint.token_string t))
     | _ -> aux st (List.append ret [(t.token_type, t)])
   in
   aux stream []
@@ -263,7 +278,7 @@ and read_array stream =
 
 let read_function stream access_modifier =
   let name, st = next_token stream in (* assume this is the name *)
-  let func_def = { func_name = name.value; parameters = []; return_type = None; access_modifier = access_modifier; func_body = []; func_return_exp = None} in
+  let func_def = { func_name = name.value; parameters = []; return_type = None; access_modifier = access_modifier; func_body = []; func_return_exp = None; func_return_type = None } in
   let rec aux st func_def =
     let t, s = next_token st in
     match t.token_type with
@@ -274,8 +289,8 @@ let read_function stream access_modifier =
       let return_type, s = read_type s (PUNCTUATION LBRACE) in
       aux s { func_def with return_type = Some return_type }
     | PUNCTUATION LBRACE ->
-      let body, return_exp,  s = read_block s in
-      aux s { func_def with func_body = body; func_return_exp = return_exp }
+      let body, return_exp, return_type, s = read_block s in
+      aux s { func_def with func_body = body; func_return_exp = return_exp; func_return_type = return_type }
     | PUNCTUATION RBRACE -> func_def, s
     | _ -> raise (ParserError ("Unexpected token in function definition " ^ Pprint.token_string t))
   in
