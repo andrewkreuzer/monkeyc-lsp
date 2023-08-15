@@ -24,9 +24,10 @@ and definition =
 and using = { namespace: string }
 
 and if_statement =
-  { condition: string
+  { condition: expression
     ; if_body: statement list
   }
+
 and block = statement list
 
 and function_definition =
@@ -133,22 +134,12 @@ let read_parameters stream =
   in
   aux stream []
 
-let read_condition stream =
-  let rec aux st ret =
-    let t, s = Lexer.next_token st in
-    match t.token_type with
-    | Lexer.PUNCTUATION RPAREN -> ret, s
-    | _ -> aux s (t.value :: ret)
-  in
-  let seq, s = aux stream [] in
-  String.concat " " (List.rev seq), s
-
 let rec read_block stream =
   let rec aux st ret =
     let t, s = Lexer.next_token st in
     match t.token_type with
     | Lexer.IDENT ->
-      let exp, s = read_expression st in
+      let exp, s = read_expression st (Lexer.PUNCTUATION RBRACE) in
       aux s (EXPRESSION exp :: ret)
     | Lexer.KEYWORD IF ->
       let if_statement, s = read_if_statement s in
@@ -164,7 +155,7 @@ and read_if_statement stream =
     let t, s = Lexer.next_token st in
     match t.token_type with
     | Lexer.PUNCTUATION LPAREN ->
-      let condition, s = read_condition s in
+      let condition, s = read_expression s (Lexer.PUNCTUATION RPAREN) in
       aux s { if_def with condition = condition }
     | Lexer.PUNCTUATION LBRACE ->
       let body, s = read_block s in
@@ -172,20 +163,20 @@ and read_if_statement stream =
     | Lexer.PUNCTUATION RBRACE -> IF if_def, st
     | _ -> raise (ParserError ("Unexpected token in if statement " ^ Pprint.token_string t))
   in
-  aux stream { condition = ""; if_body = [] }
+  aux stream { condition = IDENT ""; if_body = [] } (* filling condition with blank ident for now I guess *)
 
-and read_expression stream =
+and read_expression stream read_until =
   let rec aux str ret =
     let t, st = Lexer.next_token str in
     match ret with
     | [] -> aux st [(t.token_type, t)]
     | (Lexer.KEYWORD NEW, _) :: _ ->
-      let exp, _ = read_expression str in
+      let exp, _ = read_expression str read_until in
       NEW { expression = exp }, st
     | (Lexer.IDENT, object_name) ::
       (Lexer.OPERATOR EQ, operator) ::
       _ ->
-      let exp, _ = read_expression str in
+      let exp, _ = read_expression str read_until in
       ASSIGNMENT { left = VARIABLE (IDENT object_name.value); operator = operator.value; right = exp }, st
     | (Lexer.IDENT, function_name)
       :: (Lexer.PUNCTUATION LPAREN, _)
@@ -199,6 +190,7 @@ and read_expression stream =
       :: _ ->
       let parameters, _ = read_parameters str in
       FUNCTION_CALL { object_name = object_name.value; function_name = function_name.value; func_parameters = parameters }, st
+    | (Lexer.IDENT, _) :: ( tt, _) :: _ when (read_until = tt) -> IDENT t.value, str
     | _ -> aux st (List.append ret [(t.token_type, t)])
   in
   aux stream []
