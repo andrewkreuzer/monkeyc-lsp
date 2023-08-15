@@ -215,6 +215,7 @@ let is_ident = function
   | 'A'..'Z' -> true
   | '_' -> true
   | '0'..'9' -> true
+  | '$' -> true
   | _ -> false
 
 let read_ident stream =
@@ -230,16 +231,6 @@ let is_whitespace = function
   | ' ' -> true
   | '\t' -> true
   | '\n' -> true
-  | _ -> false
-
-let is_punctuation = function
-  | '(' -> true
-  | ')' -> true
-  | '{' -> true
-  | '}' -> true
-  | '.' -> true
-  | ';' -> true
-  | '?' -> true
   | _ -> false
 
 let is_keyword = function

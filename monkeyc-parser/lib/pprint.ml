@@ -31,7 +31,7 @@ let token_string t =
 
 let rec token_list_string = function
   | [] -> ""
-  | t::ts -> token_string t ^ " " ^ token_list_string ts
+  | t::ts -> token_string t ^ "\n" ^ token_list_string ts
 
 let print_token t = 
     print_endline (token_string t)

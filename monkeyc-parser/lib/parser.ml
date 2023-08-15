@@ -1,6 +1,8 @@
+open Lexer
+
 let run file =
-  let lexer = Lexer.make file in
-  let tokens : Lexer.token list = Lexer.tokens lexer in
+  let lexer = make file in
+  let tokens : token list = tokens lexer in
   match tokens with
   | [] -> print_endline "No tokens"
   | _ -> Pprint.print_token_list tokens
@@ -21,11 +23,14 @@ and definition =
   | CLASS
   | FUNCTION of function_definition
 
-and using = { namespace: string }
+and using = { namespace: namespace }
+and namespace = string list
 
 and if_statement =
   { condition: expression
     ; if_body: statement list
+    ; if_return_exp: expression option
+    ; else_body: statement list option list
   }
 
 and block = statement list
@@ -33,30 +38,39 @@ and block = statement list
 and function_definition =
   { func_name: string
     ; parameters : parameter list
-    ; has_return_type: bool
-    ; return_type: string
+    ; return_type: type_definition option
     ; access_modifier: access_modifier
     ; func_body: block
+    ; func_return_exp: expression option
   }
 
 and expression =
   | IDENT of string
+  | BINARY of binary
   | ENUM of enum
   | FUNCTION_CALL of function_call
   | NEW of new_expression
-  | ASSIGNMENT of assignment
   | ADD of expression * expression
   | SUBTRACT of expression * expression
-  | VARIABLE of expression
+  | VARIABLE of var
+  | ARRAY of expression list
+  | RETURN of expression option
+
+and type_definition =
+  { type_name: namespace
+    ; type_nullable: bool
+    ; contained_type: type_definition option
+    ; type_is_array: bool
+    ; type_array: type_definition list
+  }
 
 and new_expression = { expression: expression }
 
-and assignment =
+and binary = 
   { left: expression
     ; operator: string
     ; right: expression
   }
-
 and function_call =
   { object_name: string
     ; function_name: string
@@ -66,15 +80,13 @@ and function_call =
 and parameter =
   { par_name: string
     ; par_has_type: bool
-    ; par_type_name: string
-    ; nullable: bool
+    ; par_type: type_definition option
   }
 
 and var =
   { var_name: string
-    ; var_has_type: bool
-    ; var_type_name: string
-    ; value: string
+    ; value: expression option
+    ; var_type: type_definition option
     ; var_access_modifier: access_modifier
   }
 
@@ -83,133 +95,188 @@ and enum =
     ; enum_values: string list
   }
 
-type class_definition =
+and class_definition =
   { class_name: string
     ; extends: bool
-    ; extends_class: Lexer.token list
+    ; extends_class: token list
     ; private_vars: var list
     ; public_vars: var list
     ; private_functions: function_definition list
     ; public_functions: function_definition list
   }
 
-let read_var stream access_modifier =
-  let is_first i = i.var_name = "" in
+let rec read_type stream read_until =
   let rec aux st ret =
-    let t, s = Lexer.next_token st in
+    let t, s = next_token st in
     match t.token_type with
-    | Lexer.IDENT when (is_first ret) -> aux s { ret with var_name = t.value }
-    | Lexer.KEYWORD AS -> aux s { ret with var_has_type = true }
-    | Lexer.IDENT when ret.var_has_type = true -> aux s { ret with var_type_name = t.value }
-    | Lexer.PUNCTUATION SEMICOLON -> ret, s
-    | _ -> raise (ParserError ("Unexpected token in private var expression " ^ Pprint.token_string t))
+    | IDENT -> aux s { ret with type_name = t.value :: ret.type_name }
+    | PUNCTUATION DOT -> aux s ret
+    | OPERATOR LT ->
+      let contained_type, s = read_type s (OPERATOR GT) in
+      aux s { ret with contained_type = Some contained_type }
+    | KEYWORD OR ->
+      let multi_type, s = read_type s read_until in
+      aux s { ret with type_is_array = true; type_array = multi_type :: ret.type_array }
+    | PUNCTUATION QUESTIONMARK -> aux s { ret with type_nullable = true }
+    | tt when tt = read_until -> ret, st
+    | OPERATOR GT -> aux s ret
+    | PUNCTUATION COMMA -> ret, st (* hit end of type definition in parameters *)
+    | _ -> raise (ParserError ("Unexpected token in type " ^ Pprint.token_string t))
   in
-  aux stream { var_name = ""; var_has_type = true; var_type_name = ""; value = ""; var_access_modifier = access_modifier }
+  aux stream { type_name = []; type_nullable = false; contained_type = None; type_is_array = false; type_array = [] }
 
 let read_parameter stream =
   let is_first (i: parameter) = i.par_name = "" in
   let rec aux st (ret: parameter) =
-    let t, s = Lexer.next_token st in
+    let t, s = next_token st in
     match t.token_type with
-    | Lexer.IDENT when (is_first ret) -> aux s { ret with par_name = t.value }
-    | Lexer.IDENT when ret.par_has_type = true -> aux s { ret with par_type_name = t.value }
-    | Lexer.KEYWORD AS -> aux s { ret with par_has_type = true }
-    | Lexer.PUNCTUATION QUESTIONMARK -> aux s { ret with nullable = true }
-    | Lexer.PUNCTUATION COMMA -> ret, st (* send back token stream before comma *)
-    | Lexer.PUNCTUATION RPAREN -> ret, st (* send back token stream before paren *)
+    | IDENT when (is_first ret) -> aux s { ret with par_name = t.value }
+    | KEYWORD AS ->
+      let type_definition, s = read_type s (PUNCTUATION RPAREN) in
+      aux s { ret with par_type = Some type_definition }
+    | PUNCTUATION COMMA -> ret, st (* send back token stream before comma *)
+    | PUNCTUATION RPAREN -> ret, st (* send back token stream before paren *)
     | _ -> raise (ParserError ("Unexpected token in parameter " ^ Pprint.token_string t))
   in
-  aux stream { par_name = ""; par_has_type = true; par_type_name = ""; nullable = false }
+  aux stream { par_name = ""; par_has_type = true; par_type = None }
 
 let read_parameters stream =
   let rec aux st ret =
-    let t, s = Lexer.next_token st in
+    let t, s = next_token st in
     match t.token_type with
-    | Lexer.IDENT ->
+    | IDENT ->
       let parameter, s = read_parameter st in
       aux s (parameter :: ret)
-    | Lexer.PUNCTUATION COMMA -> aux s ret (* read_parameter finished *)
-    | Lexer.PUNCTUATION RPAREN -> List.rev ret, s
+    | PUNCTUATION COMMA -> aux s ret (* read_parameter finished *)
+    | PUNCTUATION RPAREN -> List.rev ret, s
     | _ -> raise (ParserError ("Unexpected token in parameter list " ^ Pprint.token_string t))
   in
   aux stream []
 
 let rec read_block stream =
   let rec aux st ret =
-    let t, s = Lexer.next_token st in
+    let t, s = next_token st in
     match t.token_type with
-    | Lexer.IDENT ->
-      let exp, s = read_expression st (Lexer.PUNCTUATION RBRACE) in
+    | IDENT ->
+      let exp, s = read_expression st (PUNCTUATION SEMICOLON) in
       aux s (EXPRESSION exp :: ret)
-    | Lexer.KEYWORD IF ->
+    | KEYWORD IF ->
       let if_statement, s = read_if_statement s in
       aux s (if_statement :: ret)
-    | Lexer.PUNCTUATION SEMICOLON -> aux s ret
-    | Lexer.PUNCTUATION RBRACE -> List.rev ret, st
+    | KEYWORD VAR ->
+      let var, s = read_var s PRIVATE in
+      aux s ((EXPRESSION (VARIABLE var )):: ret)
+    | PUNCTUATION SEMICOLON -> aux s ret
+    | KEYWORD RETURN ->
+      let return_exp, s = read_expression s (PUNCTUATION SEMICOLON) in
+      List.rev ret, Some return_exp, s
+    | PUNCTUATION RBRACE -> List.rev ret, None, st
     | _ -> raise (ParserError ("Unexpected token in block " ^ Pprint.token_string t))
   in
   aux stream []
 
 and read_if_statement stream =
   let rec aux st if_def =
-    let t, s = Lexer.next_token st in
+    let t, s = next_token st in
     match t.token_type with
-    | Lexer.PUNCTUATION LPAREN ->
-      let condition, s = read_expression s (Lexer.PUNCTUATION RPAREN) in
+    | PUNCTUATION LPAREN ->
+      let condition, s = read_expression s (PUNCTUATION RPAREN) in
       aux s { if_def with condition = condition }
-    | Lexer.PUNCTUATION LBRACE ->
-      let body, s = read_block s in
-      aux s { if_def with if_body = body }
-    | Lexer.PUNCTUATION RBRACE -> IF if_def, st
+    | PUNCTUATION LBRACE ->
+      let body, return_exp, s = read_block s in
+      aux s { if_def with if_body = body; if_return_exp = return_exp }
+    | PUNCTUATION RBRACE -> IF if_def, s
     | _ -> raise (ParserError ("Unexpected token in if statement " ^ Pprint.token_string t))
   in
-  aux stream { condition = IDENT ""; if_body = [] } (* filling condition with blank ident for now I guess *)
+  aux stream { condition = IDENT ""; if_body = []; else_body = [None]; if_return_exp = None } (* filling condition with blank ident for now I guess *)
 
 and read_expression stream read_until =
   let rec aux str ret =
-    let t, st = Lexer.next_token str in
+    let t, st = next_token str in
     match ret with
     | [] -> aux st [(t.token_type, t)]
-    | (Lexer.KEYWORD NEW, _) :: _ ->
-      let exp, _ = read_expression str read_until in
-      NEW { expression = exp }, st
-    | (Lexer.IDENT, object_name) ::
-      (Lexer.OPERATOR EQ, operator) ::
+    | (KEYWORD NEW, _) :: _ ->
+      let exp, s = read_expression str read_until in
+      NEW { expression = exp }, s
+    | (NUMBER, left) ::
+      (OPERATOR LT, operator) ::
+      (NUMBER, right) ::
       _ ->
-      let exp, _ = read_expression str read_until in
-      ASSIGNMENT { left = VARIABLE (IDENT object_name.value); operator = operator.value; right = exp }, st
-    | (Lexer.IDENT, function_name)
-      :: (Lexer.PUNCTUATION LPAREN, _)
+      BINARY { left = IDENT left.value; operator = operator.value; right = IDENT right.value }, st
+    | (IDENT, object_name) ::
+      (OPERATOR EQ, operator) ::
+      _ ->
+      let exp, s = read_expression str read_until in
+      BINARY { left = IDENT object_name.value; operator = operator.value; right = exp }, s
+    | (IDENT, function_name)
+      :: (PUNCTUATION LPAREN, _)
       :: _ ->
-      let parameters, _ = read_parameters str in
-      FUNCTION_CALL { object_name = ""; function_name = function_name.value; func_parameters = parameters }, st
-    | (Lexer.IDENT, object_name)
-      :: (Lexer.PUNCTUATION DOT, _)
-      :: (Lexer.IDENT, function_name)
-      :: (Lexer.PUNCTUATION LPAREN, _)
+      let parameters, s = read_parameters str in
+      FUNCTION_CALL { object_name = ""; function_name = function_name.value; func_parameters = parameters }, s
+    | (IDENT, object_name)
+      :: (PUNCTUATION DOT, _)
+      :: (IDENT, function_name)
+      :: (PUNCTUATION LPAREN, _)
       :: _ ->
-      let parameters, _ = read_parameters str in
-      FUNCTION_CALL { object_name = object_name.value; function_name = function_name.value; func_parameters = parameters }, st
-    | (Lexer.IDENT, _) :: ( tt, _) :: _ when (read_until = tt) -> IDENT t.value, str
+      let parameters, s = read_parameters str in
+      FUNCTION_CALL { object_name = object_name.value; function_name = function_name.value; func_parameters = parameters }, s
+    | (KEYWORD RETURN, _) :: _ ->
+        let exp, s = read_expression str read_until in
+        RETURN (Some exp), s
+    | (PUNCTUATION LBRACKET, _) :: _ ->
+      let array, s = read_array str in
+      ARRAY array, s
+    | (IDENT, _) :: ( tt, _) :: _ when (read_until = tt) -> IDENT t.value, st
+    | (IDENT, _) :: ( PUNCTUATION RBRACKET, _) :: _ -> IDENT t.value, str
     | _ -> aux st (List.append ret [(t.token_type, t)])
   in
   aux stream []
 
-let read_function stream access_modifier =
-  let name, st = Lexer.next_token stream in (* assume this is the name *)
-  let func_def = { func_name = name.value; parameters = []; has_return_type = false; return_type = ""; access_modifier = access_modifier; func_body = []} in
-  let rec aux st func_def =
-    let t, s = Lexer.next_token st in
+and read_var stream access_modifier =
+  let is_first i = i.var_name = "" in
+  let rec aux st ret =
+    let t, s = next_token st in
     match t.token_type with
-    | Lexer.PUNCTUATION LPAREN ->
+    | IDENT when (is_first ret) -> aux s { ret with var_name = t.value }
+    | KEYWORD AS ->
+      let type_definition, s = read_type s (PUNCTUATION SEMICOLON) in
+      aux s { ret with var_type = Some type_definition}
+    | OPERATOR EQ ->
+      let value, s = read_expression s (PUNCTUATION SEMICOLON) in
+      aux s { ret with value = Some value}
+    | PUNCTUATION SEMICOLON -> ret, s
+    | _ -> raise (ParserError ("Unexpected token in var expression " ^ Pprint.token_string t))
+  in
+  aux stream { var_name = ""; var_type = None; value = None; var_access_modifier = access_modifier }
+
+and read_array stream =
+  let rec aux st ret =
+    let t, s = next_token st in
+    match t.token_type with
+    | PUNCTUATION RBRACKET -> List.rev ret, s
+    | PUNCTUATION COMMA -> aux s ret
+    | _ ->
+      let exp, s = read_expression st (PUNCTUATION COMMA) in
+      aux s (exp :: ret)
+  in
+  aux stream []
+
+let read_function stream access_modifier =
+  let name, st = next_token stream in (* assume this is the name *)
+  let func_def = { func_name = name.value; parameters = []; return_type = None; access_modifier = access_modifier; func_body = []; func_return_exp = None} in
+  let rec aux st func_def =
+    let t, s = next_token st in
+    match t.token_type with
+    | PUNCTUATION LPAREN ->
       let parameters, s = read_parameters s in
       aux s { func_def with parameters = parameters }
-    | Lexer.KEYWORD AS -> aux s { func_def with has_return_type = true }
-    | Lexer.IDENT when func_def.has_return_type = true -> aux s { func_def with return_type = t.value }
-    | Lexer.PUNCTUATION LBRACE ->
-      let body, s = read_block s in
-      aux s { func_def with func_body = body }
-    | Lexer.PUNCTUATION RBRACE -> func_def, s
+    | KEYWORD AS ->
+      let return_type, s = read_type s (PUNCTUATION LBRACE) in
+      aux s { func_def with return_type = Some return_type }
+    | PUNCTUATION LBRACE ->
+      let body, return_exp,  s = read_block s in
+      aux s { func_def with func_body = body; func_return_exp = return_exp }
+    | PUNCTUATION RBRACE -> func_def, s
     | _ -> raise (ParserError ("Unexpected token in function definition " ^ Pprint.token_string t))
   in
   aux st func_def
@@ -217,54 +284,54 @@ let read_function stream access_modifier =
 let read_class_definition stream class_def =
   let is_first i = i.class_name = "" in
   let rec aux st ret =
-    let t, s = Lexer.next_token st in
+    let t, s = next_token st in
     match t.token_type with
-    | Lexer.IDENT when (is_first ret) -> aux s { ret with class_name = t.value }
-    | Lexer.KEYWORD EXTENDS -> aux s { ret with extends = true }
-    | Lexer.PUNCTUATION DOT -> aux s { ret with extends_class = t :: ret.extends_class }
-    | Lexer.IDENT when (ret.extends = true) -> aux s { ret with extends_class = t :: ret.extends_class }
-    | Lexer.PUNCTUATION LBRACE -> { ret with extends_class = List.rev ret.extends_class }, s
+    | IDENT when (is_first ret) -> aux s { ret with class_name = t.value }
+    | KEYWORD EXTENDS -> aux s { ret with extends = true }
+    | PUNCTUATION DOT -> aux s { ret with extends_class = t :: ret.extends_class }
+    | IDENT when (ret.extends = true) -> aux s { ret with extends_class = t :: ret.extends_class }
+    | PUNCTUATION LBRACE -> { ret with extends_class = List.rev ret.extends_class }, s
     | _ -> raise (ParserError ("Unexpected token in class definition " ^ Pprint.token_string t))
   in
   aux stream class_def
 
 let read_class_block stream class_def = 
   let rec aux str ret =
-    let t, st = Lexer.next_token str in
+    let t, st = next_token str in
     match t.token_type with
 
-    | Lexer.KEYWORD VAR ->
+    | KEYWORD VAR ->
       let var, s = read_var st PUBLIC in
       aux s { ret with private_vars = var :: ret.private_vars }
 
-    | Lexer.KEYWORD PRIVATE -> 
+    | KEYWORD PRIVATE -> 
       (
-        let t, st = Lexer.next_token st in
+        let t, st = next_token st in
         match t.token_type with
-        | Lexer.KEYWORD VAR ->
+        | KEYWORD VAR ->
           let var, s = read_var st PRIVATE in
           aux s { ret with private_vars = var :: ret.private_vars }
-        | Lexer.KEYWORD FUNCTION ->
+        | KEYWORD FUNCTION ->
           let f, s = read_function st PRIVATE in
           aux s { ret with private_functions = f :: ret.private_functions }
         | _ -> raise (ParserError ("Unexpected token in private declaration " ^ Pprint.token_string t))
       )
 
-    | Lexer.KEYWORD PUBLIC -> 
+    | KEYWORD PUBLIC -> 
       (
-        let t, st = Lexer.next_token st in
+        let t, st = next_token st in
         match t.token_type with
-        | Lexer.KEYWORD VAR ->
-          let private_var, s = read_var st PUBLIC in
-          aux s { ret with public_vars = private_var :: ret.public_vars }
-        | Lexer.KEYWORD FUNCTION ->
+        | KEYWORD VAR ->
+          let var, s = read_var st PUBLIC in
+          aux s { ret with public_vars = var :: ret.public_vars }
+        | KEYWORD FUNCTION ->
           let f, s = read_function st PUBLIC in
           aux s { ret with public_functions = f :: ret.public_functions }
         | _ -> raise (ParserError ("Unexpected token in private declaration " ^ Pprint.token_string t))
       )
 
-    | Lexer.PUNCTUATION LBRACE -> { ret with extends_class = List.rev ret.extends_class; private_vars = List.rev ret.private_vars }, st
-    | Lexer.PUNCTUATION RBRACE -> ret, st
+    (* | PUNCTUATION LBRACE -> { ret with extends_class = List.rev ret.extends_class; private_vars = List.rev ret.private_vars }, st *)
+    | PUNCTUATION RBRACE -> ret, st
     | _ -> raise (ParserError ("Unexpected token in class block " ^ Pprint.token_string t))
   in
   aux stream class_def
@@ -277,53 +344,68 @@ let read_class stream =
 
 let read_using_statement stream =
   let rec aux st using =
-    let t, s = Lexer.next_token st in
+    let t, s = next_token st in
     match t.token_type with
-    | Lexer.IDENT -> aux s { namespace = using.namespace ^ t.value }
-    | Lexer.PUNCTUATION DOT -> aux s { namespace = using.namespace ^ t.value }
-    | Lexer.PUNCTUATION SEMICOLON -> USING using, s
+    | IDENT -> aux s { namespace = t.value :: using.namespace}
+    | PUNCTUATION DOT -> aux s using
+    | PUNCTUATION SEMICOLON -> USING using, s
     | _ -> raise (ParserError ("Unexpected token in using expression " ^ Pprint.token_string t))
   in
-  aux stream { namespace = "" }
+  aux stream { namespace = [] }
 
 let read_enum_expression stream = 
   let is_first enum = enum.enum_name = "" in
   let rec aux st enum =
-    let t, s = Lexer.next_token st in
+    let t, s = next_token st in
     match t.token_type with
-    | Lexer.IDENT when (is_first enum) -> aux s { enum with enum_name = t.value }
-    | Lexer.PUNCTUATION LBRACE -> aux s enum
-    | Lexer.IDENT -> aux s { enum with enum_values = t.value :: enum.enum_values }
-    | Lexer.PUNCTUATION COMMA -> aux s enum
-    | Lexer.PUNCTUATION RBRACE -> ENUM { enum with enum_values = List.rev enum.enum_values }, s
+    | IDENT when (is_first enum) -> aux s { enum with enum_name = t.value }
+    | PUNCTUATION LBRACE -> aux s enum
+    | IDENT -> aux s { enum with enum_values = t.value :: enum.enum_values }
+    | PUNCTUATION COMMA -> aux s enum
+    | PUNCTUATION RBRACE -> ENUM { enum with enum_values = List.rev enum.enum_values }, s
     | _ -> raise (ParserError ("Unexpected token in enum expression " ^ Pprint.token_string t))
   in
   aux stream { enum_name = ""; enum_values = [] }
 
+let var_string var =
+  match var.var_type with
+  | Some var_type -> String.concat " " var_type.type_name ^ " " ^ var.var_name
+  | None -> var.var_name
+
 let var_list_string (vars: var list) =
   let rec aux ret = function
     | [] -> ret
-    | h :: t -> aux (ret ^ " " ^ h.var_type_name ^ " " ^ h.var_name) t
+    | h :: t ->
+      match h.var_type with
+      | Some var_type -> aux (ret ^ " " ^ String.concat " " var_type.type_name ^ " " ^ h.var_name) t
+      | None -> aux (ret ^ " " ^ h.var_name) t
   in
   aux "" vars
 
-let rec exp_string = function
-  | IDENT s -> s
-  | ENUM e -> e.enum_name
-  | FUNCTION_CALL f -> f.function_name
-  | NEW n -> "New " ^ exp_string n.expression
-  | ASSIGNMENT a -> exp_string a.left ^ " = " ^ exp_string a.right
-  | ADD (a, b) -> exp_string a ^ " + " ^ exp_string b
-  | SUBTRACT (a, b) -> exp_string a ^ " - " ^ exp_string b
-  | VARIABLE v -> exp_string v
 
-let exp_list_string (exps: expression list) =
+let rec exp_list_string (exps: expression list) =
   let rec aux ret = function
     | [] -> ret
     | h :: t ->
       aux (ret ^ " " ^ (exp_string h)) t
   in
   aux "" exps
+
+and exp_string = function
+  | IDENT s -> s
+  | ENUM e -> e.enum_name
+  | FUNCTION_CALL f -> f.function_name
+  | NEW n -> "New " ^ exp_string n.expression
+  | BINARY a -> exp_string a.left ^ " = " ^ exp_string a.right
+  | ADD (a, b) -> exp_string a ^ " + " ^ exp_string b
+  | SUBTRACT (a, b) -> exp_string a ^ " - " ^ exp_string b
+  | VARIABLE v -> var_string v
+  | ARRAY a -> "Array " ^ exp_list_string a
+  | RETURN r ->
+    match r with
+    | None -> "Return"
+    | Some r -> 
+      "Return " ^ exp_string r
 
 let statement_string = function
   | EXPRESSION exp -> exp_string exp
@@ -361,23 +443,23 @@ let print_class_definitiion class_def =
   )
 
 let print = function 
-  | USING u -> print_endline ("USING " ^ u.namespace)
+  | USING u -> print_endline ("USING " ^ String.concat " " u.namespace)
   | EXPRESSION ENUM e -> print_endline ("ENUM " ^ e.enum_name ^ " with " ^ String.concat " " e.enum_values)
   | _ -> print_endline "Undefined_recursive_module"
 
 let run_next file =
-  let stream = Lexer.make file in
+  let stream = make file in
   let rec aux str =
-    let t, st = Lexer.next_token str in
+    let t, st = next_token str in
     match t.token_type with
-    | Lexer.EOF -> print_endline "EOF"
-    | Lexer.KEYWORD USING -> 
+    | EOF -> print_endline "EOF"
+    | KEYWORD USING -> 
       let use_exp, s = read_using_statement st in
       print use_exp; aux s
-    | Lexer.KEYWORD ENUM -> 
+    | KEYWORD ENUM -> 
       let enum, s = read_enum_expression st in
       print (EXPRESSION enum); aux s
-    | Lexer.KEYWORD CLASS -> 
+    | KEYWORD CLASS -> 
       let class_def, s = read_class st in
       print_class_definitiion class_def; aux s
     | _ -> print_endline "Undefined_recursive_module"
