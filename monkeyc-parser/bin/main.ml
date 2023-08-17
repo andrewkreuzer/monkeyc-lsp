@@ -10,4 +10,4 @@ let () =
   Arg.parse speclist anon_fun usage_msg;
   match !input_file with
   |  "" -> Arg.usage speclist usage_msg
-  | f -> Parser.run_next f
+  | f -> Parser.parse f

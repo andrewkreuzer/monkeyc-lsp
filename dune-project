@@ -17,7 +17,7 @@
 
 (package
  (allow_empty)
- (name monkeyc_lsp)
+ (name monkeyc-lsp)
  (synopsis "A short synopsis")
  (description "A longer description")
  (depends ocaml dune)
@@ -25,7 +25,7 @@
   (topics "to describe" your project)))
 
 (package
- (name monkeyc_parser)
+ (name monkeyc-parser)
  (synopsis "A short synopsis")
  (description "A longer description")
  (depends ocaml dune core)

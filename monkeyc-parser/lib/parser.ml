@@ -1,12 +1,5 @@
 open Lexer
 
-let run file =
-  let lexer = make file in
-  let tokens : token list = tokens lexer in
-  match tokens with
-  | [] -> print_endline "No tokens"
-  | _ -> Pprint.print_token_list tokens
-
 exception ParserError of string
 
 type access_modifier =
@@ -127,6 +120,7 @@ let rec read_type stream read_until =
   in
   aux stream { type_name = []; type_nullable = false; contained_type = None; type_is_array = false; type_array = [] }
 
+(* TODO: read this as an expression *)
 let read_parameter stream =
   let is_first (i: parameter) = i.param_name = "" in
   let rec aux st (ret: parameter) =
@@ -204,6 +198,7 @@ and read_if_statement stream =
   in
   aux stream { condition = IDENT ""; if_body = []; else_body = [None]; if_return_exp = None; if_return_type = None } (* filling condition with blank ident for now I guess *)
 
+(* TODO: there's gotta be a better way to read expressions *)
 and read_expression stream read_until =
   let rec aux str ret =
     let t, st = next_token str in
@@ -310,7 +305,7 @@ let read_class_definition stream class_def =
   in
   aux stream class_def
 
-let read_class_block stream class_def = 
+let read_class_block stream class_def =
   let rec aux str ret =
     let t, st = next_token str in
     match t.token_type with
@@ -502,20 +497,23 @@ let class_to_json (c: class_definition) =
   ])
 
 let to_json = function
-  | USING u -> pretty_to_string
+  | USING u ->
     (`Assoc [
       ("using", `List (List.map (fun s -> `String s) u.namespace))
     ])
-  | EXPRESSION ENUM e -> pretty_to_string 
+  | EXPRESSION ENUM e ->
     (`Assoc [
       ("enum", `Assoc [("name", `String e.enum_name);
       ("values", `List (List.map (fun s -> `String s) e.enum_values))])
     ])
-  | DEFINITION CLASS c -> pretty_to_string (class_to_json c)
-  | DEFINITION FUNCTION f -> pretty_to_string (func_to_json f)
-  | _ -> to_string (`Assoc [("error", `String "Undefined_recursive_module")])
+  | DEFINITION CLASS c ->class_to_json c
+  | DEFINITION FUNCTION f ->func_to_json f
+  | _ -> `Assoc [("error", `String "Undefined_recursive_module")]
 
-let run_next file =
+let print_json (s: statement) =
+  print_endline (pretty_to_string (to_json s))
+
+let parse file =
   let stream = make file in
   let rec aux str =
     let t, st = next_token str in
@@ -523,13 +521,13 @@ let run_next file =
     | EOF -> print_endline "EOF"
     | KEYWORD USING -> 
       let use_exp, s = read_using_statement st in
-      print_endline (to_json use_exp); aux s
+      print_json use_exp; aux s
     | KEYWORD ENUM -> 
       let enum, s = read_enum_expression st in
-      print_endline (to_json (EXPRESSION enum)); aux s
+      print_json (EXPRESSION enum); aux s
     | KEYWORD CLASS -> 
       let class_def, s = read_class st in
-      print_endline (to_json (DEFINITION (CLASS class_def))); aux s
+      print_json (DEFINITION (CLASS class_def)); aux s
     | _ -> print_endline "Undefined_recursive_module"
   in
   aux stream

@@ -1,0 +1,11 @@
+(library
+  (name monkeyc_lsp_server)
+  (libraries
+    core
+    chrome-trace
+    monkeyc_parser
+    lsp
+    fiber
+    lsp_fiber
+    jsonrpc
+    lev_fiber))

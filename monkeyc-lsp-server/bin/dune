@@ -1,0 +1,5 @@
+(executable
+ (public_name monkeyclsp)
+ (name main)
+ (package monkeyc-lsp)
+ (libraries monkeyc_lsp_server stdune))
