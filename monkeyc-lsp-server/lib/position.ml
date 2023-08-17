@@ -6,11 +6,11 @@ let to_dyn { line; character } =
 
 let start = { line = 0; character = 0 }
 
-let is_dummy (lp : Lexing.position) =
+let is_dummy (lp : Lexer.position) =
   lp.pos_lnum = Lexing.dummy_pos.pos_lnum
   && lp.pos_cnum = Lexing.dummy_pos.pos_cnum
 
-let of_lexical_position (lex_position : Lexing.position) : t option =
+let of_lexical_position (lex_position : Lexer.position) : t option =
   if is_dummy lex_position then None
   else
     let line = lex_position.pos_lnum - 1 in

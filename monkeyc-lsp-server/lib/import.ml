@@ -92,6 +92,37 @@ include struct
   end
 end
 
+module Lexer = Monkeyc_parser.Lexer
+
+module Loc = struct
+  module T = struct
+    include Monkeyc_parser.Location
+  end
+
+  include T
+
+  module Map = Map.Make (struct
+    include T
+
+    let compare x x' = Ordering.of_int (compare x x')
+
+    let position_to_dyn (pos : Monkeyc_parser.Lexer.position) =
+      Dyn.Record
+        [ ("pos_fname", Dyn.String pos.pos_fname)
+        ; ("pos_lnum", Dyn.Int pos.pos_lnum)
+        ; ("pos_bol", Dyn.Int pos.pos_bol)
+        ; ("pos_cnum", Dyn.Int pos.pos_cnum)
+        ]
+
+    let to_dyn (loc: Monkeyc_parser.Location.t) =
+      Dyn.Record
+        [ ("loc_start", position_to_dyn loc.loc_start)
+        ; ("loc_end", position_to_dyn loc.loc_end)
+        ; ("loc_ghost", Dyn.Bool loc.loc_ghost)
+        ]
+  end)
+end
+
 (* All modules from [Lsp_fiber] should be in the struct below. The modules are
    listed alphabetically. Try to keep the order. *)
 include struct

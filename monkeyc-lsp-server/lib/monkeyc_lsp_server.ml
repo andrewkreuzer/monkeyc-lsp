@@ -262,15 +262,16 @@ let on_request :
     -> resp Client_request.t
     -> (resp Reply.t * State.t) Fiber.t =
  fun server req ->
+  let rpc = server in
   let state : State.t = Server.state server in
   let now res = Fiber.return (Reply.now res, state) in
-  (* let later f req = *)
-  (*   Fiber.return *)
-  (*     ( Reply.later (fun k -> *)
-  (*           let* resp = f state req in *)
-  (*           k resp) *)
-  (*     , state ) *)
-  (* in *)
+  let later f req =
+    Fiber.return
+      ( Reply.later (fun k ->
+            let* resp = f state req in
+            k resp)
+      , state )
+  in
   match req with
   | Client_request.UnknownRequest { meth; params } ->
     let _ = meth in
@@ -292,7 +293,13 @@ let on_request :
   | InlayHint _ -> now None
   | TextDocumentColor _ -> now []
   | TextDocumentColorPresentation _ -> now []
-  | TextDocumentHover _req -> not_supported ()
+  | TextDocumentHover req ->
+    let mode =
+      match state.configuration.data.extended_hover with
+      | Some { enable = true } -> Hover_req.Extended_variable
+      | Some _ | None -> Hover_req.Default
+    in
+    later (fun (_ : State.t) () -> Hover_req.handle rpc req mode) ()
   | TextDocumentReferences _req ->not_supported ()
   | TextDocumentCodeLensResolve codeLens -> now codeLens
   | TextDocumentCodeLens _req -> not_supported ()

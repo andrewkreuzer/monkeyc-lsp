@@ -402,6 +402,13 @@ let skip_comment stream =
   in
   aux stream
 
+type position =
+  { pos_fname: string
+    ; pos_lnum: int
+    ; pos_bol: int
+    ; pos_cnum: int
+  }
+
 type token =
   { token_type : token_type
     ; value : string
