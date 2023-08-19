@@ -55,8 +55,8 @@ and type_definition =
   { type_name: namespace
     ; type_nullable: bool
     ; contained_type: type_definition option
-    ; type_is_array: bool
-    ; type_array: type_definition list
+    ; multi_type: bool
+    ; optional_types: type_definition list
   }
 
 and new_expression = { expression: expression }
@@ -99,7 +99,9 @@ and class_definition =
     ; methods: function_definition list
   }
 
-(* TODO: multi type not working *)
+(* DONE: multi type not working
+   it's hacky but it does the job we should probably just read dicitonaries
+   and arrays as a specific case and throw an error if we can't read it *)
 let rec read_type stream read_until =
   let rec aux st ret =
     let t, s = next_token st in
@@ -110,15 +112,20 @@ let rec read_type stream read_until =
       let contained_type, s = read_type s (OPERATOR GT) in
       aux s { ret with contained_type = Some contained_type }
     | KEYWORD OR ->
-      let multi_type, s = read_type s read_until in
-      aux s { ret with type_is_array = true; type_array = multi_type :: ret.type_array }
+      let optional_type, s = read_type s read_until in
+      let optional_types =
+        [{ optional_type with multi_type = false; optional_types = []}]
+        @ optional_type.optional_types
+        @ ret.optional_types
+      in
+      { ret with multi_type = true; optional_types = optional_types }, s
     | PUNCTUATION QUESTIONMARK -> aux s { ret with type_nullable = true }
     | tt when tt = read_until -> ret, st
     | OPERATOR GT -> aux s ret
     | PUNCTUATION COMMA -> ret, st (* hit end of type definition in parameters *)
     | _ -> raise (ParserError ("Unexpected token in type " ^ Pprint.token_string t))
   in
-  aux stream { type_name = []; type_nullable = false; contained_type = None; type_is_array = false; type_array = [] }
+  aux stream { type_name = []; type_nullable = false; contained_type = None; multi_type = false; optional_types = [] }
 
 (* TODO: read this as an expression *)
 let read_parameter stream =
@@ -455,7 +462,9 @@ let rec type_to_json (t: type_definition option) =
     `Assoc [
       ("type", `String (String.concat " " t.type_name));
       ("nullable", `Bool t.type_nullable);
-      ("type_array", `List (List.map (fun t -> type_to_json (Some t)) t.type_array));
+      ("multi_type", `Bool t.multi_type);
+      ("optional_types", `List (List.map (fun t -> type_to_json (Some t)) t.optional_types));
+      ("contained_type", type_to_json t.contained_type);
     ]
   | None -> `Assoc []
 
