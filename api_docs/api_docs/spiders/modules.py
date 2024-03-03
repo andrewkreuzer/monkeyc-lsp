@@ -4,6 +4,7 @@ from scrapy.loader import ItemLoader
 import html2text
 
 from api_docs.items import ApiDocsItem
+from api_docs.parser import parse_signature
 
 
 def parse_docstring(docstring):
@@ -25,8 +26,12 @@ class ModulesSpider(scrapy.Spider):
         i.add_value("name", "Toybox")
         i.add_value("url", response.url)
         i.add_css("modules", "span.type a::text")
-        i.add_value("docstring", "The Toybox namespace is the top-level namespace for the Connect IQ SDK. It contains all the modules and classes that are available to Connect IQ apps.")
+        i.add_value(
+            "docstring",
+            "The Toybox namespace is the top-level namespace for the Connect IQ SDK. It contains all the modules and classes that are available to Connect IQ apps.",
+        )
         yield i.load_item()
+
         yield from response.follow_all(anchors, callback=self.parse_module)
 
     def parse_module(self, response, namespace=None):
@@ -47,20 +52,29 @@ class ModulesSpider(scrapy.Spider):
         i.add_value("docstring", docstring)
         i.add_value("modules", modules.css("a::text").getall())
         i.add_value("classes", classes.css("a::text").getall())
-        i.add_value("constants", [
-            self.parse_constant(constant)
-            for constant in response.css("dl.constants")
-        ])
-        i.add_value("typedefs", [
-            self.parse_typedef(typedef)
-            for typedef in response.xpath(
-                "//h2[text()='Typedef Summary ']/following-sibling::ul[1]/li"
-            )
-        ])
-        i.add_value("methods", [
-            self.parse_method(method)
-            for method in response.css("div.method_details_list div.method_details")
-        ])
+        i.add_value(
+            "constants",
+            [
+                self.parse_constant(constant)
+                for constant in response.css("dl.constants")
+            ],
+        )
+        i.add_value(
+            "typedefs",
+            [
+                self.parse_typedef(typedef)
+                for typedef in response.xpath(
+                    "//h2[text()='Typedef Summary ']/following-sibling::ul[1]/li"
+                )
+            ],
+        )
+        i.add_value(
+            "methods",
+            [
+                self.parse_method(method)
+                for method in response.css("div.method_details_list div.method_details")
+            ],
+        )
 
         if modules:
             yield from response.follow_all(
@@ -80,14 +94,20 @@ class ModulesSpider(scrapy.Spider):
         i.add_value("name", response.css("h1::text").get().replace("Class: ", ""))
         i.add_value("url", response.url)
         i.add_value("docstring", docstring)
-        i.add_value("attributes", [
-            self.parse_attribute(attr)
-            for attr in response.css("div.attr_details dt")
-        ])
-        i.add_value("methods", [
-            self.parse_method(method)
-            for method in response.css("div.method_details_list div.method_details")
-        ])
+        i.add_value(
+            "attributes",
+            [
+                self.parse_attribute(attr)
+                for attr in response.css("div.attr_details dt")
+            ],
+        )
+        i.add_value(
+            "methods",
+            [
+                self.parse_method(method)
+                for method in response.css("div.method_details_list div.method_details")
+            ],
+        )
 
         yield i.load_item()
 
@@ -150,23 +170,32 @@ class ModulesSpider(scrapy.Spider):
 
     def parse_signature(self, signature):
         name = signature.split("(")[0]
-        void = "Void" in signature
-        nullable = "Null" in signature
+        with open(f"sigs/{name}.txt", "w") as f:
+            f.write(signature)
+        return_string = signature.split(")")[1]
+        void = "Void" in return_string
+        nullable = "Null" in return_string
 
-        parameters = {}
-        parameter_list = signature.split("(")[1].split(")")[0].split(",")
-        for param in parameter_list:
-            p = param.split("as")
-            pn = p[0]
-            t = p[1] if len(p) > 1 else None
-            parameters[pn.strip()] = (
-                [param_type.strip() for param_type in t.split("or")] if t else None
-            )
+        # DONE: right an actual parser for this :(
+        def _parse_parameters(parameter_string):
+            parameters = {}
+            for param in parameter_string:
+                p = param.split("as")
+                pn = p[0].strip()
+                t = p[1] if len(p) > 1 else None
+
+                parameters[pn] = (
+                    [param_type.strip() for param_type in t.split("or")] if t else None
+                )
+            return parameters
+
+        parameter_string = signature.split("(")[1].split(")")[0]
+        parameters = _parse_parameters(parameter_string)
 
         # TODO: parse array types
         return_types = [
             ret_type.strip()
-            for ret_type in signature.split(")")[1].replace("as", "").split("or")
+            for ret_type in return_string.replace("as", "").split("or")
             if "Void" or "Null" not in ret_type
         ]
 
@@ -179,7 +208,7 @@ class ModulesSpider(scrapy.Spider):
         }
 
     def parse_method(self, method):
-        signature = self.parse_signature(
+        signature = parse_signature(
             " ".join(
                 v.strip()
                 for v in method.css("h3.signature").xpath(".//text()").getall()
@@ -194,8 +223,15 @@ class ModulesSpider(scrapy.Spider):
             parameters = []
             for param in parameter_list:
                 pn = param.css("span.name::text").get()
-                pt = [param.css("span.type a::text").get()]
-                pt.extend(signature["parameters"].get(pn) or [])
+                pt = set(
+                    param.xpath(
+                        ".//span[contains(@class, 'name')]/following-sibling::span"
+                    )
+                    .css("span.type a::text")
+                    .getall()
+                )
+                # TODO: join parser's paramaters with the ones from the scraper
+                # pt.update(signature["parameters"].get(pn) or [])
                 ptdict = _parse_parameters(param.xpath(".//li"))
                 pds = param.css("div.inline").get()
                 parameters.append(
@@ -216,8 +252,8 @@ class ModulesSpider(scrapy.Spider):
         return {
             "method_name": signature["name"],
             "parameters": parameters,
-            "nullable": signature["nullable"],
-            "void": signature["void"],
+            "nullable": "Null" in signature["type"],
+            "void": "void" in signature["type"],
             "depricated": depricated,
             "returns": return_types,
         }

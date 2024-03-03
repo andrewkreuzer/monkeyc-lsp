@@ -18,7 +18,15 @@
         devShells.default = mkShell {
           buildInputs = [
             ocaml
+            (python3.withPackages (ps: with ps; [
+              black
+              scrapy
+              html2text
+            ]))
           ];
+          shellHook = ''
+            eval $(opam env)
+          '';
         };
       }
     );
