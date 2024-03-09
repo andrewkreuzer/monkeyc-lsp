@@ -1,5 +1,4 @@
 import re
-import json
 
 
 class Parser:
@@ -15,7 +14,7 @@ class Parser:
             raise ValueError(f"Invalid name: '{t}'")
         return t
 
-    def parse_parameters(self, until: set[str | None] | None = None):
+    def parse_parameters(self, until: set[str] | None = None):
         parameters = []
         while self.lexer.peek() != None and self.lexer.peek() not in until:
             param = self.parse_parameter(until)
@@ -23,7 +22,7 @@ class Parser:
 
         return parameters
 
-    def parse_parameter(self, until: set[str | None] | None = None):
+    def parse_parameter(self, until: set[str] | None = None):
         param = {}
         while True:
             if until and self.lexer.peek() in until:
@@ -33,8 +32,8 @@ class Parser:
                 if "..." in self.lexer.peek():
                     param["name"] = self.parse_name(r"^[a-zA-Z_][a-zA-Z0-9_.]*$")
                     param["exampleParameter"] = True
-                    continue
-                param["name"] = self.parse_name(r"^:?[a-zA-Z_][a-zA-Z0-9_]*$")
+                else:
+                    param["name"] = self.parse_name(r"^:?[a-zA-Z_][a-zA-Z0-9_]*$")
                 continue
 
             t = self.lexer.next()
@@ -44,30 +43,30 @@ class Parser:
             if t == "as":
                 if param.get("types") is None:
                     param["types"] = []
-                t = self.parse_type(until)
-                param["types"].extend(t)
+                param_type = self.parse_type(until)
+                param["types"].extend(param_type)
 
-    def parse_type(self, until: set[str | None] | None = None):
+    def parse_type(self, until: set[str] | None = None, return_type: bool = False):
         param_type = []
         re_type = re.compile(r"^[a-zA-Z_][.a-zA-Z0-9_]*$")
         while True:
             if until and self.lexer.peek() in until or self.lexer.peek() == ",":
                 return param_type
 
-            c = self.lexer.next()
-            if c == None:
+            t = self.lexer.next()
+            if t == None:
                 return param_type
 
-            if c == "{":
+            if t == "{":
                 param_type.append(
                     {
                         "type": "Lang.Dictionary",
-                        "parameters": self.parse_parameters(set(["}"])),
+                        "keys": self.parse_parameters(set(["}"])),
                     }
                 )
                 continue
 
-            if c == "Lang.Method":
+            if t == "Lang.Method":
                 if self.lexer.peek() == "(":
                     _ = self.lexer.next()
                 parameters = self.parse_parameters(set([")"]))
@@ -76,12 +75,12 @@ class Parser:
                     {
                         "type": "Lang.Method",
                         "parameters": parameters,
-                        "returns": self.parse_type(set([")", "or"])),
+                        "returns": self.parse_type(until, return_type=True),
                     }
                 )
                 continue
 
-            if c == "Lang.Dictionary":
+            if t == "Lang.Dictionary":
                 if self.lexer.peek() == "<":
                     _ = self.lexer.next()  # consume the opening angle bracket
                     key_type = self.parse_type(set([","]))
@@ -98,25 +97,32 @@ class Parser:
                     param_type.append("Lang.Dictionary")
                 continue
 
-            if c == "Lang.Array":
+            if t == "Lang.Array":
                 if self.lexer.peek() == "<":
                     _ = self.lexer.next()
-                param_type.append(self.parse_type(set([">"])))
+                param_type.append(
+                    {
+                        "type": "Lang.Array",
+                        "valueType": self.parse_type(set([">"]))
+                    })
                 continue
 
-            if c == "or":
+            if t == "or":
                 while self.lexer.peek() == "or":
+                    _until = set(["or"])
                     if until:
-                        until.add("or")
-                    t = self.parse_type(until)
+                        _until.union(until)
+                    t = self.parse_type(_until)
                     param_type.extend(t)
                 continue
 
-            if c == "as":
+            if t == "as":
                 continue
 
-            if re_type.match(c):
-                param_type.append(c)
+            if re_type.match(t):
+                param_type.append(t)
+                if t == "Void":
+                    return param_type
 
 
 class Lexer:
@@ -151,35 +157,16 @@ def parse_signature(signature: str):
     name = parser.parse_name()
     _ = lexer.next()  # consume the opening parenthesis
     parameters = parser.parse_parameters(set([")"]))
-    function_type = parser.parse_type()
+    returns = parser.parse_type()
 
     return {
         "name": name,
         "parameters": parameters,
-        "type": function_type,
+        "returns": returns,
     }
 
-
-# import glob
-# files = glob.glob("./sigs/*.txt")
-# # files = ["./sigs/generateSignedOAuthHeader.txt"]
-# for file in files:
-#     print(file)
-#     with open(file, "r") as f:
-#         signature = f.read()
-#         lexer = Lexer(signature)
-#         parser = Parser(lexer)
-
-#         # assume the first token is the name
-#         name = parser.parse_name()
-#         _ = lexer.next() # consume the opening parenthesis
-#         parameters = parser.parse_parameters(set([")"]))
-#         function_type = parser.parse_type()
-
-#         parsed_signature = {
-#             "name": name,
-#             "parameters": parameters,
-#             "type": function_type,
-#         }
-
-#         print(json.dumps(parsed_signature, indent=2))
+if __name__ == "__main__":
+    import json
+    with open ("./sigs/invoke.txt", "r") as f:
+        signature = f.read()
+        print(json.dumps(parse_signature(signature), indent=2))

@@ -20,6 +20,7 @@
             ocaml
             (python3.withPackages (ps: with ps; [
               black
+              pytest
               scrapy
               html2text
             ]))
