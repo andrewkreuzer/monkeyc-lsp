@@ -339,11 +339,31 @@ def test_parser():
                 },
             ],
         },
+        {
+            "signature": "animate(object, property as Lang.Symbol , type as WatchUi.AnimationType , start as Lang.Numeric , stop as Lang.Numeric , period as Lang.Numeric , callback as Null or Lang.Method () as Void )",
+            "name": "animate",
+            "returns": [],
+            "parameters": [
+                {"name": "object"},
+                {"name": "property", "types": ["Lang.Symbol"]},
+                {"name": "type", "types": ["WatchUi.AnimationType"]},
+                {"name": "start", "types": ["Lang.Numeric"]},
+                {"name": "stop", "types": ["Lang.Numeric"]},
+                {"name": "period", "types": ["Lang.Numeric"]},
+                {
+                    "name": "callback",
+                    "types": [
+                        "Null",
+                        {"type": "Lang.Method", "parameters": [], "returns": ["Void"]},
+                    ],
+                },
+            ],
+        },
     ]
 
     for signature in signatures:
         ast = parse_signature(signature["signature"])
 
-        assert ast["name"] == signature["name"]
-        assert ast["parameters"] == signature["parameters"]
-        assert ast["returns"] == signature["returns"]
+        assert ast.name == signature["name"]
+        assert ast.parameters == signature["parameters"]
+        assert ast.returns == signature["returns"]

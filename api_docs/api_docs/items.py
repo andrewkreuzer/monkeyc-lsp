@@ -4,14 +4,14 @@
 # https://docs.scrapy.org/en/latest/topics/items.html
 
 import scrapy
-
+from itemloaders.processors import TakeFirst
 
 class ApiDocsItem(scrapy.Item):
-    t = scrapy.Field()
-    parent = scrapy.Field()
-    name = scrapy.Field()
-    url = scrapy.Field()
-    docstring = scrapy.Field()
+    type = scrapy.Field(output_processor=TakeFirst())
+    parent = scrapy.Field(output_processor=TakeFirst())
+    name = scrapy.Field(output_processor=TakeFirst())
+    url = scrapy.Field(output_processor=TakeFirst())
+    docstring = scrapy.Field(output_processor=TakeFirst())
     attributes = scrapy.Field()
     modules = scrapy.Field()
     classes = scrapy.Field()

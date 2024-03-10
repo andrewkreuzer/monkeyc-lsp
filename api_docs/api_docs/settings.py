@@ -99,7 +99,7 @@ FEEDS = {
         'overwrite': True,
         'indent': 2,
         'item_export_kwargs': {
-           'export_empty_fields': True,
+           'export_empty_fields': False,
         },
     },
 }

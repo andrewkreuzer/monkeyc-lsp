@@ -4,13 +4,13 @@ from scrapy.loader import ItemLoader
 import html2text
 
 from api_docs.items import ApiDocsItem
-from api_docs.parser import parse_signature
+from api_docs.parser import parse_signature as sig_ast
 
 
 def parse_docstring(docstring):
     if not docstring:
         return ""
-    return html2text.html2text(docstring).strip()
+    return html2text.html2text(docstring).strip().replace("\n", " ")
 
 
 class ModulesSpider(scrapy.Spider):
@@ -22,7 +22,7 @@ class ModulesSpider(scrapy.Spider):
         anchors = response.css("span.type a")
 
         i = ItemLoader(item=ApiDocsItem(), response=response)
-        i.add_value("t", "namespace")
+        i.add_value("type", "namespace")
         i.add_value("name", "Toybox")
         i.add_value("url", response.url)
         i.add_css("modules", "span.type a::text")
@@ -45,7 +45,7 @@ class ModulesSpider(scrapy.Spider):
         )
 
         i = ItemLoader(item=ApiDocsItem(), response=response)
-        i.add_value("t", "module" if namespace is None else "namespace")
+        i.add_value("type", "module" if namespace is None else "namespace")
         i.add_value("parent", namespace)
         i.add_value("name", name)
         i.add_value("url", response.url)
@@ -89,7 +89,7 @@ class ModulesSpider(scrapy.Spider):
     def parse_class(self, response, module):
         docstring = parse_docstring(response.css("div.docstring").get())
         i = ItemLoader(item=ApiDocsItem(), response=response)
-        i.add_value("t", "class")
+        i.add_value("type", "class")
         i.add_value("parent", module)
         i.add_value("name", response.css("h1::text").get().replace("Class: ", ""))
         i.add_value("url", response.url)
@@ -130,14 +130,16 @@ class ModulesSpider(scrapy.Spider):
 
             return constants
 
-        constant_modules = response.xpath(".//dt")
-        for module in constant_modules:
-            module_name = module.css("h3::text").get()
+        constant_tables = response.xpath(".//dt")
+        for module in constant_tables:
+            constant_type = module.css("h3::text").get()
             table = module.xpath(".//following-sibling::table[1]")
             tags = module.xpath(".//following-sibling::div[1]")
-            constants[module_name] = {
-                "module_constants": _parse_table(table),
-                "tags": tags.css("p::text").getall(),
+            constants[constant_type] = {
+                "constants": _parse_table(table),
+                "tags": " ".join(
+                    [s.strip() for s in tags.css("p::text").getall()]
+                ).strip(),
             }
         return constants
 
@@ -169,6 +171,7 @@ class ModulesSpider(scrapy.Spider):
         }
 
     def parse_signature(self, signature):
+        """Deprecated"""
         name = signature.split("(")[0]
         with open(f"sigs/{name}.txt", "w") as f:
             f.write(signature)
@@ -176,7 +179,6 @@ class ModulesSpider(scrapy.Spider):
         void = "Void" in return_string
         nullable = "Null" in return_string
 
-        # DONE: right an actual parser for this :(
         def _parse_parameters(parameter_string):
             parameters = {}
             for param in parameter_string:
@@ -208,7 +210,7 @@ class ModulesSpider(scrapy.Spider):
         }
 
     def parse_method(self, method):
-        signature = parse_signature(
+        signature = sig_ast(
             " ".join(
                 v.strip()
                 for v in method.css("h3.signature").xpath(".//text()").getall()
@@ -222,38 +224,35 @@ class ModulesSpider(scrapy.Spider):
                 return None
             parameters = []
             for param in parameter_list:
-                pn = param.css("span.name::text").get()
-                pt = set(
+                parameter = {}
+                if name := param.css("span.name::text").get():
+                    parameter["name"] = name
+
+                parameter["types"] = set(
                     param.xpath(
-                        ".//span[contains(@class, 'name')]/following-sibling::span"
-                    )
-                    .css("span.type a::text")
-                    .getall()
+                        "./span[contains(@class, 'type')]/span/a/text()"
+                    ).getall()
                 )
-                # TODO: join parser's paramaters with the ones from the scraper
-                # pt.update(signature["parameters"].get(pn) or [])
-                ptdict = _parse_parameters(param.xpath(".//li"))
-                pds = param.css("div.inline").get()
-                parameters.append(
-                    {
-                        "parameter_name": pn,
-                        "type": pt,
-                        "type_dictionary_keys": ptdict,
-                        "docstring": parse_docstring(pds),
-                    }
-                )
+
+                parameter["docstring"] = parse_docstring(param.css("div.inline").get())
+
+                if dictionary_keys := _parse_parameters(param.xpath(".//li")):
+                    parameter["dictionary_keys"] = dictionary_keys
+
+                parameters.append(parameter)
+
             return parameters if len(parameters) > 0 else None
 
-        parameter_list = method.css("div.tags ul.param").xpath(
-            ".//li[not(ancestor::li)]"
-        )
-        parameters = _parse_parameters(parameter_list)
+        parameters = _parse_parameters(method.css("div.tags ul.param").xpath("./li"))
+        throws = _parse_parameters(method.css("div.tags ul.throws").xpath("./li"))
 
         return {
-            "method_name": signature["name"],
+            "name": signature.name,
+            "ast": signature.__dict__,
             "parameters": parameters,
-            "nullable": "Null" in signature["type"],
-            "void": "void" in signature["type"],
+            "nullable": "Null" in signature.returns,
+            "void": "Void" in signature.returns,
             "depricated": depricated,
+            "throws": throws,
             "returns": return_types,
         }

@@ -149,6 +149,14 @@ class Lexer:
             return None
 
 
+class SignatureAST:
+    def __init__(self, name, parameters, returns):
+        self.name = name
+        self.parameters = parameters
+        self.returns = returns
+    def __str__(self):
+        return f"{self.name}({', '.join(self.parameters)}) -> {self.returns}"
+
 def parse_signature(signature: str):
     lexer = Lexer(signature)
     parser = Parser(lexer)
@@ -159,11 +167,7 @@ def parse_signature(signature: str):
     parameters = parser.parse_parameters(set([")"]))
     returns = parser.parse_type()
 
-    return {
-        "name": name,
-        "parameters": parameters,
-        "returns": returns,
-    }
+    return SignatureAST(name, parameters, returns)
 
 if __name__ == "__main__":
     import json
