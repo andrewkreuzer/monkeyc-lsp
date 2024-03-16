@@ -1,6 +1,3 @@
-open Stdune
-open Core
-open Base
 open Ppx_yojson_conv_lib.Yojson_conv.Primitives
 
 (*
@@ -80,25 +77,32 @@ module Methods : sig
   type t
   val from_modules : module_ list -> t
   val print_names : t -> unit
+  val make_map : t -> (string, method_) Hashtbl.t
 end = struct
   type t = method_ list
 
-  let from_modules modules = List.map modules ~f:(fun m ->
+  let from_modules modules = List.map (fun m ->
     match m.methods with
     | Some x -> x
     | None -> []
-  ) |> List.concat
+  ) modules |> Stdune.List.concat
 
-  (* why the fuck does this require a typedef *)
-  let print_names (t: method_ list) = List.iter t ~f:(fun m -> Stdio.print_endline m.name)
+  let make_map l =
+    let map = Hashtbl.create (List.length l) in
+    List.iter (fun (m: method_) -> Hashtbl.add map m.name m) l;
+    map
+
+  let print_names t = List.iter (fun (m: method_) -> Stdio.print_endline m.name) t
 end
 
 let () =
-  let f = In_channel.create "./api_docs/monkeyc.json" in
-  let yojson_string = Yojson.Safe.from_string (Io.read_all f) in
+  let f = Core.In_channel.create "./api_docs/monkeyc.json" in
+  let yojson_string = Yojson.Safe.from_string (Stdune.Io.read_all f) in
   (* Stdio.print_endline (Yojson.Safe.show yojson_string); *)
   let modules = Modules.from_yojson yojson_string in
-  let _methods = Methods.from_modules modules in
+  let methods = Methods.from_modules modules in
+  let map_of_methods = Methods.make_map methods in
   Stdio.print_endline "";
-  Methods.print_names _methods;
+  Methods.print_names methods;
+  print_endline (List.hd (Hashtbl.find map_of_methods "getSunrise").ast.parameters).name;
 (* Stdio.print_endline (Stdlib.read_line ()) *)
