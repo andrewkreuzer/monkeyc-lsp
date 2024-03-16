@@ -15,6 +15,6 @@ class ApiDocsItem(scrapy.Item):
     attributes = scrapy.Field()
     modules = scrapy.Field()
     classes = scrapy.Field()
-    constants = scrapy.Field()
+    constants = scrapy.Field(output_processor=TakeFirst())
     typedefs = scrapy.Field()
     methods = scrapy.Field()

@@ -52,13 +52,7 @@ class ModulesSpider(scrapy.Spider):
         i.add_value("docstring", docstring)
         i.add_value("modules", modules.css("a::text").getall())
         i.add_value("classes", classes.css("a::text").getall())
-        i.add_value(
-            "constants",
-            [
-                self.parse_constant(constant)
-                for constant in response.css("dl.constants")
-            ],
-        )
+        i.add_value("constants", self.parse_constant(response.css("dl.constants")))
         i.add_value(
             "typedefs",
             [
@@ -112,12 +106,12 @@ class ModulesSpider(scrapy.Spider):
         yield i.load_item()
 
     def parse_constant(self, response):
-        constants = {}
+        constants = []
 
-        def _parse_table(table):
-            headings = table.css("th::text").getall()
+        def _parse_table(constant_type, table):
+            headings = [h.lower() for h in table.css("th::text").getall()]
 
-            constants = []
+            consts = []
             for i, row in enumerate(table.css("tr")):
                 if i == 0:
                     continue
@@ -126,21 +120,18 @@ class ModulesSpider(scrapy.Spider):
                     for v in row.xpath("td/text()|td/p/text()").getall()
                     if v.strip()
                 ]
-                constants.append(dict(zip(headings, row_values)))
+                c = dict(zip(headings, row_values))
+                c["type"] = constant_type
+                consts.append(c)
 
-            return constants
+            return consts
 
         constant_tables = response.xpath(".//dt")
         for module in constant_tables:
             constant_type = module.css("h3::text").get()
             table = module.xpath(".//following-sibling::table[1]")
-            tags = module.xpath(".//following-sibling::div[1]")
-            constants[constant_type] = {
-                "constants": _parse_table(table),
-                "tags": " ".join(
-                    [s.strip() for s in tags.css("p::text").getall()]
-                ).strip(),
-            }
+            constants.append(_parse_table(constant_type, table))
+
         return constants
 
     def parse_typedef(self, typedef):
@@ -219,7 +210,7 @@ class ModulesSpider(scrapy.Spider):
         depricated = method.css("div.deprecated").get() is not None
         return_types = method.css("div.tags ul.return span.type a::text").getall()
 
-        def _parse_parameters(parameter_list):
+        def _parse_parameters(parameter_list, include_type=False):
             if not parameter_list:
                 return None
             parameters = []
@@ -228,11 +219,12 @@ class ModulesSpider(scrapy.Spider):
                 if name := param.css("span.name::text").get():
                     parameter["name"] = name
 
-                parameter["types"] = set(
-                    param.xpath(
-                        "./span[contains(@class, 'type')]/span/a/text()"
-                    ).getall()
-                )
+                if include_type:
+                    parameter["types"] = set(
+                        param.xpath(
+                            "./span[contains(@class, 'type')]/span/a/text()"
+                        ).getall()
+                    )
 
                 parameter["docstring"] = parse_docstring(param.css("div.inline").get())
 
@@ -244,7 +236,7 @@ class ModulesSpider(scrapy.Spider):
             return parameters if len(parameters) > 0 else None
 
         parameters = _parse_parameters(method.css("div.tags ul.param").xpath("./li"))
-        throws = _parse_parameters(method.css("div.tags ul.throws").xpath("./li"))
+        throws = _parse_parameters(method.css("div.tags ul.throws").xpath("./li"), include_type=True)
 
         return {
             "name": signature.name,

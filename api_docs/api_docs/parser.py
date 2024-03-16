@@ -120,7 +120,7 @@ class Parser:
                 continue
 
             if re_type.match(t):
-                param_type.append(t)
+                param_type.append({"type": t})
                 if t == "Void":
                     return param_type
 
