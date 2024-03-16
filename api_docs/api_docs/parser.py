@@ -94,7 +94,7 @@ class Parser:
                         }
                     )
                 else:
-                    param_type.append("Lang.Dictionary")
+                    param_type.append({"type": "Lang.Dictionary"})
                 continue
 
             if t == "Lang.Array":

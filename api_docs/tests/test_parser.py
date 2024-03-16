@@ -125,7 +125,7 @@ def test_parser():
             "returns": [{"type": "Void"}],
             "parameters": [
                 {"name": "url", "types": [{"type": "Lang.String"}]},
-                {"name": "parameters", "types": ["Lang.Dictionary", {"type": "Null"}]},
+                {"name": "parameters", "types": [{"type": "Lang.Dictionary"}, {"type": "Null"}]},
                 {
                     "name": "options",
                     "types": [
@@ -136,7 +136,7 @@ def test_parser():
                                     "name": ":method",
                                     "types": [{"type": "Communications.HttpRequestMethod"}],
                                 },
-                                {"name": ":headers", "types": ["Lang.Dictionary"]},
+                                {"name": ":headers", "types": [{"type": "Lang.Dictionary"}]},
                                 {
                                     "name": ":responseType",
                                     "types": [{"type": "Communications.HttpResponseContentType"}],
@@ -177,7 +177,7 @@ def test_parser():
                                 {
                                     "name": "data",
                                     "types": [
-                                        "Lang.Dictionary",
+                                        {"type": "Lang.Dictionary"},
                                         {"type": "Lang.String"},
                                         {"type": "PersistedContent.Iterator"},
                                         {"type": "Null"},
@@ -193,7 +193,7 @@ def test_parser():
                                 {
                                     "name": "data",
                                     "types": [
-                                        "Lang.Dictionary",
+                                        {"type": "Lang.Dictionary"},
                                         {"type": "Lang.String"},
                                         {"type": "PersistedContent.Iterator"},
                                         {"type": "Null"},

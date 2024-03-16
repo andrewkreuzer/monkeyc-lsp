@@ -94,7 +94,7 @@ end = struct
 end
 
 let () =
-  let f = In_channel.create "./doc-json/bin/monkeyc.json" in
+  let f = In_channel.create "./api_docs/monkeyc.json" in
   let yojson_string = Yojson.Safe.from_string (Io.read_all f) in
   (* Stdio.print_endline (Yojson.Safe.show yojson_string); *)
   let modules = Modules.from_yojson yojson_string in
