@@ -20,10 +20,10 @@ USER_AGENT = "api_docs"
 ROBOTSTXT_OBEY = False
 
 LOG_LEVEL = "INFO"
-CLOSESPIDER_ITEMCOUNT = 2
+# CLOSESPIDER_ITEMCOUNT = 2
 
 # Configure maximum concurrent requests performed by Scrapy (default: 16)
-CONCURRENT_REQUESTS = 1
+# CONCURRENT_REQUESTS = 1
 
 # Configure a delay for requests for the same website (default: 0)
 # See https://docs.scrapy.org/en/latest/topics/settings.html#download-delay

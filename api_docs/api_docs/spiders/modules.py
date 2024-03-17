@@ -121,7 +121,7 @@ class ModulesSpider(scrapy.Spider):
                     if v.strip()
                 ]
                 c = dict(zip(headings, row_values))
-                c["type"] = constant_type
+                c["parent"] = constant_type
                 consts.append(c)
 
             return consts
