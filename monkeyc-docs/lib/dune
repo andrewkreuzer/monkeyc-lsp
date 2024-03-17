@@ -1,0 +1,5 @@
+(library
+ (name monkeyc_docs)
+ (libraries stdune core base)
+ (preprocess
+ (pps ppx_jane ppx_yojson_conv)))

@@ -33,7 +33,7 @@
   (topics "to describe" your project)))
 
 (package
- (name json-docs)
+ (name monkeyc-docs)
  (synopsis "A short synopsis")
  (description "A longer description")
  (depends ocaml dune core)

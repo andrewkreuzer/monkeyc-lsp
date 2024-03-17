@@ -1,0 +1,7 @@
+(executable
+ (public_name monkeycdocs)
+ (name main)
+ (package monkeyc-docs)
+ (libraries stdune core base monkeyc_docs)
+ (preprocess
+  (pps ppx_jane ppx_yojson_conv)))

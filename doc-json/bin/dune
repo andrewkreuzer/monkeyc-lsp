@@ -1,7 +1,0 @@
-(executable
- (public_name jsondocs)
- (name main)
- (package json-docs)
- (libraries stdune core base)
- (preprocess
-  (pps ppx_jane ppx_yojson_conv)))

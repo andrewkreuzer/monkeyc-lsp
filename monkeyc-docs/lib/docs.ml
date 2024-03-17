@@ -70,6 +70,7 @@ type module_list = module_ list [@@deriving yojson]
 module Modules : sig
   val from_yojson : Yojson.Safe.t -> module_list
   val make_map : module_list -> (string, module_) Hashtbl.t
+  val print_names : module_list -> unit
 end = struct
   let from_yojson json = module_list_of_yojson json
 
@@ -77,6 +78,8 @@ end = struct
     let map = Hashtbl.create (List.length l) in
     List.iter (fun (m: module_) -> Hashtbl.add map m.name m) l;
     map
+
+  let print_names l = List.iter (fun (m: module_) -> Stdio.print_endline m.name) l
 end
 
 module Methods : sig
@@ -119,18 +122,3 @@ end = struct
     List.iter (fun (m: constant) -> Hashtbl.add map m.name m) l;
     map
 end
-
-let () =
-  let f = Core.In_channel.create "./api_docs/monkeyc.json" in
-  let yojson_string = Yojson.Safe.from_string (Stdune.Io.read_all f) in
-  let modules = Modules.from_yojson yojson_string in
-  let map_of_modules = Modules.make_map modules in
-  let methods = Methods.from_modules modules in
-  let map_of_methods = Methods.make_map methods in
-  let constants = Constants.from_modules modules in
-  let map_of_constants = Constants.make_map constants in
-  print_endline "";
-  Methods.print_names methods;
-  print_endline ("\nmodules: " ^ (Hashtbl.find map_of_modules "Toybox.Weather").url ^ "\n");
-  print_endline ("\nparameters: " ^ (List.hd (Hashtbl.find map_of_methods "getSunrise").ast.parameters).name ^ "\n");
-  print_endline ("\nconstants: " ^ (Hashtbl.find map_of_constants "CONDITION_CLEAR").value ^ "\n");
